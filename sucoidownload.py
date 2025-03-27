@@ -7,7 +7,7 @@ from threading import Thread
 class Sucoidownload:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Sucoidownload - TikTok 批量下载器")
+        self.root.title("Sucoidownload - 视频批量下载器") # 修改标题
         self.root.geometry("600x400")
 
         # 配置根窗口的网格布局
@@ -20,7 +20,7 @@ class Sucoidownload:
         self.status_label = tk.Label(self.root, text="状态: 就绪")
 
         # URL 输入框
-        self.url_label = tk.Label(self.root, text="请输入 TikTok 视频 URL（每行一个）:")
+        self.url_label = tk.Label(self.root, text="请输入视频 URL（每行一个）:") # 修改标签文本
         self.url_text = tk.Text(self.root, height=10, width=50) # width 参数在 grid 下效果有限
 
         # 保存路径选择
