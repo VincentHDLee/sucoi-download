@@ -29,6 +29,11 @@
 
 ### 更改 (Changed)
 
+*   **架构重构 (Refactoring)**:
+    *   创建 `youtube.py` 模块，将 YouTube 平台的搜索 (`search_videos`) 和下载 (`download_videos`) 逻辑从主程序 `sucoidownload.py` 中分离出来。
+    *   修改 `youtube.download_videos` 以使用回调函数 (`progress_callback`) 报告下载进度，实现与 GUI 的解耦。
+    *   修改 `sucoidownload.py` 以调用 `youtube.py` 中的函数，并实现 `update_download_progress` 回调来更新下载列表。
+
 *   **前端重构 (GUI Rework)**:
     *   将原 URL 输入/结果文本框替换为两个 `ttk.Treeview` 表格，分别用于显示“搜索结果”和“下载列表”。
     *   实现 `add_selected_to_download` 方法，允许将搜索结果添加到下载列表。

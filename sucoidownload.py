@@ -1,12 +1,13 @@
 # sucoidownload.py
-import yt_dlp
+# import yt_dlp # 已移至 youtube.py
 import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog, messagebox
 import os
 from threading import Thread
+import youtube # 导入 YouTube 平台模块
 from config_manager import ConfigManager
-from googleapiclient.discovery import build
+# from googleapiclient.discovery import build # 已移至 youtube.py
 
 class Sucoidownload:
     def __init__(self):
@@ -24,7 +25,7 @@ class Sucoidownload:
         self.status_label = tk.Label(self.root, text="状态: 就绪")
 
         # 搜索关键词输入
-        self.keyword_label = tk.Label(self.root, text="搜索关键词:")
+        self.keyword_label = tk.Label(self.root, text="搜索关键词 (多个用空格分隔):") # 更新提示文本
         self.keyword_entry = tk.Entry(self.root)
         self.search_button = tk.Button(self.root, text="搜索视频", command=self.handle_search)
 
@@ -256,157 +257,67 @@ class Sucoidownload:
         if folder:
             self.path_var.set(folder)
 
-    def progress_hook(self, d):
-        """下载进度回调函数，用于更新 download_tree 中的状态。"""
-        video_id = d.get('info_dict', {}).get('id')
-        if not video_id:
-             # 回退逻辑: 更新主状态栏
-             status_text = "状态: 未知视频下载中..."
-             if d['status'] == 'downloading':
-                 status_text = f"状态: 下载中... {d.get('_percent_str', '0%')}"
-             elif d['status'] == 'finished':
-                 status_text = "状态: 一个文件下载完成，处理中..."
-             elif d['status'] == 'error':
-                 status_text = "状态: 下载出错 (未知视频)"
-             self.root.after(0, lambda: self.status_label.config(text=status_text))
-             self.root.after(0, lambda: self.root.update_idletasks())
-             return
+    # --- progress_hook 方法已移除，逻辑移至 youtube.py 并通过回调实现 ---
 
-        # --- 在主线程中更新 Treeview ---
-        def update_treeview_progress():
+
+    def update_download_progress(self, progress_data):
+        """由 youtube.py 调用的回调函数，用于在主线程更新下载列表。"""
+        video_id = progress_data.get('id')
+        if not video_id:
+            print("警告: 收到缺少 video_id 的进度回调数据:", progress_data)
+            return
+
+        # 确保在主线程执行 GUI 更新
+        def do_update():
             try:
                 if not self.download_tree.exists(video_id):
-                    return # 项可能已被移除
+                    # print(f"Update progress: Item {video_id} 不再存在，跳过更新。")
+                    return
 
-                status = d['status']
-                if status == 'downloading':
-                    total_bytes_str = d.get('_total_bytes_str') # 使用格式化好的字符串
-                    downloaded_bytes = d.get('downloaded_bytes')
-                    speed_str = d.get('_speed_str', 'N/A')
-                    eta_str = d.get('_eta_str', 'N/A')
-                    percent_str = d.get('_percent_str', '0%')
-                    filename = d.get('filename', '未知文件')
-                    base_filename = os.path.basename(filename)
+                status = progress_data.get('status')
+                if status == 'preparing':
+                     self.download_tree.set(video_id, column='status', value="准备下载")
+                     self.download_tree.set(video_id, column='description', value='') # 清除旧描述
+                elif status == 'downloading':
+                    percent = progress_data.get('percent', '0%')
+                    size = progress_data.get('size', '未知')
+                    speed = progress_data.get('speed', 'N/A')
+                    eta = progress_data.get('eta', 'N/A')
+                    filename = progress_data.get('filename', '')
 
-                    size_str = total_bytes_str if total_bytes_str else d.get('_downloaded_bytes_str', '未知')
-
-                    self.download_tree.set(video_id, column='filename', value=base_filename)
-                    self.download_tree.set(video_id, column='size', value=size_str)
-                    self.download_tree.set(video_id, column='status', value=f"下载中 {percent_str.strip()}")
-                    self.download_tree.set(video_id, column='eta', value=eta_str)
-                    self.download_tree.set(video_id, column='speed', value=speed_str)
-                    self.download_tree.set(video_id, column='description', value='') # 清除旧信息
+                    # 仅当文件名有效时才更新
+                    if filename:
+                        self.download_tree.set(video_id, column='filename', value=filename)
+                    self.download_tree.set(video_id, column='size', value=size)
+                    self.download_tree.set(video_id, column='status', value=f"下载中 {percent}")
+                    self.download_tree.set(video_id, column='eta', value=eta)
+                    self.download_tree.set(video_id, column='speed', value=speed)
+                    self.download_tree.set(video_id, column='description', value='')
 
                 elif status == 'finished':
-                    filename = d.get('filename', '未知文件')
-                    base_filename = os.path.basename(filename)
-                    total_bytes_str = d.get('_total_bytes_str', '未知') # 获取最终大小
+                    filename = progress_data.get('filename', '')
+                    size = progress_data.get('size', '未知')
+                    description = progress_data.get('description', '完成') # 从 youtube.py 获取描述
 
-                    self.download_tree.set(video_id, column='filename', value=base_filename)
-                    self.download_tree.set(video_id, column='size', value=total_bytes_str)
+                    if filename:
+                        self.download_tree.set(video_id, column='filename', value=filename)
+                    self.download_tree.set(video_id, column='size', value=size)
                     self.download_tree.set(video_id, column='status', value="下载完成")
                     self.download_tree.set(video_id, column='eta', value='0s')
                     self.download_tree.set(video_id, column='speed', value='')
-                    # 检查是否需要后处理 (例如合并音视频)
-                    postprocessor = d.get('postprocessor')
-                    description = '合并/转换中...' if postprocessor else '完成'
                     self.download_tree.set(video_id, column='description', value=description)
 
                 elif status == 'error':
-                    error_msg = d.get('error', '下载过程中发生错误') # yt-dlp hook 可能不提供 error 字段
-                    # 尝试从日志或 yt-dlp 的输出中获取更详细信息可能更好，但这里简化
+                    description = progress_data.get('description', '未知错误')
                     self.download_tree.set(video_id, column='status', value="下载出错")
-                    self.download_tree.set(video_id, column='description', value=str(error_msg)[:100]) # 显示错误摘要
+                    self.download_tree.set(video_id, column='description', value=description)
 
             except Exception as e:
-                print(f"更新 Treeview 进度时出错 (vid={video_id}, status={d.get('status')}): {e}")
+                print(f"在 update_download_progress 中更新 Treeview 时出错 (vid={video_id}, data={progress_data}): {e}")
 
-        self.root.after(0, update_treeview_progress)
+        self.root.after(0, do_update)
 
-    def download_videos_from_tree(self, video_ids, output_path):
-        """从下载列表 (Treeview) 下载指定的视频。"""
-        ydl_opts = {
-            'outtmpl': os.path.join(output_path, '%(title)s [%(id)s].%(ext)s'),
-            'progress_hooks': [self.progress_hook], # progress_hook 稍后修改
-            'quiet': False,
-            'noplaylist': True,
-            'encoding': 'utf-8',
-            'nocheckcertificate': True,
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            # 'ffmpeg_location': '/path/to/ffmpeg',
-            'ignoreerrors': True, # 忽略单个视频错误，继续下载
-        }
-
-        download_success_count = 0
-        download_error_count = 0
-        total_videos = len(video_ids)
-
-        for i, video_id in enumerate(video_ids):
-            # --- 在主线程更新 Treeview 状态 ---
-            def update_treeview_status(vid, status_text, description=""):
-                 # 使用 try-except 包装 Treeview 操作，增加健壮性
-                 try:
-                     if self.download_tree.exists(vid):
-                         self.download_tree.set(vid, column='status', value=status_text)
-                         self.download_tree.set(vid, column='description', value=description)
-                     else:
-                         print(f"警告: 尝试更新不存在的项: {vid}")
-                 except Exception as tk_e:
-                     print(f"更新 Treeview 时出错 (vid={vid}): {tk_e}")
-
-            self.root.after(0, update_treeview_status, video_id, "准备下载")
-            self.root.after(0, lambda: self.status_label.config(text=f"状态: 准备下载 {i+1}/{total_videos}"))
-            self.root.after(0, lambda: self.root.update_idletasks())
-
-            url = f"https://www.youtube.com/watch?v={video_id}"
-            download_successful = False # 标记当前视频是否成功
-
-            try:
-                # 清除旧的进度信息
-                self.current_download_info = {'id': video_id} # 传递 video_id 给 progress_hook
-
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    # download 调用本身可能会被 ignoreerrors 捕获错误，我们需要通过 hook 判断
-                    result = ydl.download([url])
-                    # result 为 0 表示成功, 非 0 表示失败 (但 ignoreerrors 可能使其总是返回 0)
-                    # 所以主要依赖 progress_hook 更新状态
-            except Exception as e: # 捕捉 yt-dlp 初始化等错误
-                download_error_count += 1
-                error_msg = str(e)
-                print(f"下载视频 {url} 时发生严重错误: {error_msg}")
-                self.root.after(0, update_treeview_status, video_id, "下载出错", error_msg[:100])
-                continue # 继续下一个视频
-
-            # 检查 progress_hook 设置的最终状态
-            final_status = ""
-            try:
-                if self.download_tree.exists(video_id):
-                    final_status = self.download_tree.set(video_id, column='status')
-            except Exception as tk_e:
-                print(f"获取最终状态时出错 (vid={video_id}): {tk_e}")
-
-            if final_status == "下载完成":
-                download_success_count += 1
-            elif final_status != "下载出错": # 如果不是明确的出错，但也不是完成，则标记可能出错
-                download_error_count += 1
-                self.root.after(0, update_treeview_status, video_id, "完成(可能出错)", "检查文件")
-            else: # 如果状态已经是 "下载出错"
-                 download_error_count += 1
-
-
-        # 所有视频尝试下载完成后更新状态和弹窗
-        def show_final_status():
-            final_message = f"全部任务完成！成功: {download_success_count}, 失败/出错: {download_error_count}"
-            self.status_label.config(text=f"状态: {final_message}")
-            if download_error_count > 0:
-                 messagebox.showwarning("下载完成", final_message + "\n部分视频下载失败或可能出错，请检查。")
-            else:
-                 messagebox.showinfo("成功", final_message)
-            # 重新启用按钮
-            self.download_button.config(state=tk.NORMAL)
-            self.search_button.config(state=tk.NORMAL)
-            self.add_to_download_button.config(state=tk.NORMAL)
-        self.root.after(0, show_final_status)
+    # --- download_videos_from_tree 方法已移除，逻辑移至 youtube.py ---
 
     def start_download(self):
         """从下载列表获取任务，并在新线程中启动下载过程"""
@@ -415,33 +326,58 @@ class Sucoidownload:
             messagebox.showwarning("警告", "请选择保存路径！")
             return
 
-        # 获取下载列表中所有项的 iid (视频 ID)
         all_item_iids = self.download_tree.get_children()
         if not all_item_iids:
              messagebox.showinfo("提示", "下载列表为空。")
              return
 
-        # 筛选出状态为“待下载”或“下载出错”的项准备下载
         video_ids_to_download = []
         for item_iid in all_item_iids:
              item_values = self.download_tree.item(item_iid, 'values')
-             # 检查状态列 (假设是第 4 列，索引为 3)
-             if item_values and len(item_values) > 3 and item_values[3] in ('待下载', '下载出错'):
+             if item_values and len(item_values) > 3 and item_values[3] in ('待下载', '下载出错', '准备下载', '完成(可能出错)'): # 包含重试状态
                  video_ids_to_download.append(item_iid)
+                 # 将待重试的状态统一更新为准备下载
+                 if item_values[3] != '待下载':
+                      try: # 添加 try-except 增加健壮性
+                          if self.download_tree.exists(item_iid):
+                             self.download_tree.set(item_iid, column='status', value="准备下载")
+                             self.download_tree.set(item_iid, column='description', value="") # 清空旧错误
+                      except Exception as e:
+                          print(f"重置下载状态时出错 (vid={item_iid}): {e}")
+
 
         if not video_ids_to_download:
-             messagebox.showinfo("提示", "没有待下载或下载失败的任务。")
+             messagebox.showinfo("提示", "没有待下载或可重试的任务。")
              return
 
-        # 禁用按钮
         self.download_button.config(state=tk.DISABLED)
         self.search_button.config(state=tk.DISABLED)
-        self.add_to_download_button.config(state=tk.DISABLED) # 禁用添加按钮
+        self.add_to_download_button.config(state=tk.DISABLED)
         self.status_label.config(text="状态: 开始准备下载...")
         self.root.update_idletasks()
 
-        # 将视频 ID 列表传递给下载线程
-        download_thread = Thread(target=self.download_videos_from_tree, args=(video_ids_to_download, output_path))
+        # --- 下载线程逻辑 ---
+        def download_task_wrapper(ids, path):
+            # 调用 youtube 模块的下载函数，传入回调
+            success_count, error_count = youtube.download_videos(ids, path, self.update_download_progress)
+
+            # --- 下载完成后的 GUI 更新（在主线程执行）---
+            def show_final_status_wrapper():
+                final_message = f"全部任务完成！成功: {success_count}, 失败/出错: {error_count}"
+                self.status_label.config(text=f"状态: {final_message}")
+                if error_count > 0:
+                     messagebox.showwarning("下载完成", final_message + "\n部分视频下载失败或可能出错，请检查。")
+                else:
+                     messagebox.showinfo("成功", final_message)
+                # 重新启用按钮
+                self.download_button.config(state=tk.NORMAL)
+                self.search_button.config(state=tk.NORMAL)
+                self.add_to_download_button.config(state=tk.NORMAL)
+
+            self.root.after(0, show_final_status_wrapper)
+
+        # 将包装后的下载任务放入线程执行
+        download_thread = Thread(target=download_task_wrapper, args=(video_ids_to_download, output_path))
         download_thread.daemon = True
         download_thread.start()
 
@@ -460,10 +396,13 @@ class Sucoidownload:
          self.root.update_idletasks()
 
          def search_task():
-             video_ids = self.search_videos(query)
-             self.root.after(0, update_search_results, video_ids)
+             # 调用 youtube 模块的 search_videos 函数
+             videos_info, error_msg = youtube.search_videos(self.api_key, query)
+             # 将结果和可能的错误信息传递给主线程的更新函数
+             self.root.after(0, update_search_results, videos_info, error_msg)
 
-         def update_search_results(videos_info): # 参数改为接收详细信息列表
+         # update_search_results 需要接收 error_msg 参数
+         def update_search_results(videos_info, error_msg):
              # 清空旧的搜索结果
              for i in self.search_tree.get_children():
                  self.search_tree.delete(i)
@@ -471,13 +410,19 @@ class Sucoidownload:
              # 重新启用按钮
              self.search_button.config(state=tk.NORMAL)
              self.download_button.config(state=tk.NORMAL)
+             self.add_to_download_button.config(state=tk.NORMAL) # 确保添加按钮也重新启用
 
-             if videos_info is None: # 检查是否出错
+             if error_msg: # 优先检查是否有错误信息
                  self.status_label.config(text="状态: 搜索出错")
-                 # 错误弹窗已在 search_videos 中处理
+                 messagebox.showerror("搜索错误", error_msg) # 显示从 youtube.py 返回的错误
+                 return
+             # 如果 videos_info 是 None 但没有 error_msg (理论上不应发生，但也处理一下)
+             elif videos_info is None:
+                 self.status_label.config(text="状态: 搜索出错")
+                 messagebox.showerror("搜索错误", "发生未知错误")
                  return
 
-             if videos_info:
+             if videos_info: # 如果有结果 (此时 error_msg 必为 None)
                  # 填充搜索结果表格
                  for video in videos_info:
                      # 按照 search_tree 定义的列顺序插入值
@@ -500,130 +445,7 @@ class Sucoidownload:
          search_thread.daemon = True
          search_thread.start()
 
-    def search_videos(self, query):
-        """
-        使用 YouTube Data API 搜索视频并获取详细信息。
-
-        参数:
-            query (str): 搜索关键词。
-
-        返回:
-            list: 包含视频详细信息字典的列表，每个字典包含表格所需的字段。
-                  出错则返回 None。
-        """
-        import isodate # 导入 isodate 用于解析时长
-        from datetime import timedelta
-
-        def format_duration(duration_str):
-            """将 ISO 8601 时长字符串转换为 HH:MM:SS 或 MM:SS 格式。"""
-            try:
-                duration = isodate.parse_duration(duration_str)
-                total_seconds = int(duration.total_seconds())
-                hours, remainder = divmod(total_seconds, 3600)
-                minutes, seconds = divmod(remainder, 60)
-                if hours > 0:
-                    return f"{hours:02}:{minutes:02}:{seconds:02}"
-                else:
-                    return f"{minutes:02}:{seconds:02}"
-            except Exception:
-                return "未知"
-
-        def format_large_number(num_str):
-             """格式化数字，如果太大则显示 K, M, B"""
-             try:
-                 num = int(num_str)
-                 if num >= 1_000_000_000:
-                     return f"{num / 1_000_000_000:.1f}B"
-                 if num >= 1_000_000:
-                     return f"{num / 1_000_000:.1f}M"
-                 if num >= 1000:
-                     return f"{num / 1000:.1f}K"
-                 return str(num)
-             except (ValueError, TypeError):
-                 return num_str if num_str else "0"
-
-        try:
-            youtube = build('youtube', 'v3', developerKey=self.api_key)
-
-            search_request = youtube.search().list(
-                part='snippet',
-                q=query,
-                type='video',
-                maxResults=50
-            )
-            search_response = search_request.execute()
-            search_items = search_response.get('items', [])
-
-            video_details = {}
-            video_ids = []
-            for item in search_items:
-                 if isinstance(item, dict) and 'id' in item and isinstance(item['id'], dict) and 'videoId' in item['id']:
-                     video_id = item['id']['videoId']
-                     video_ids.append(video_id)
-                     video_details[video_id] = item.get('snippet', {})
-                 else:
-                     print(f"警告: 发现无效的搜索结果项: {item}")
-
-            if not video_ids:
-                 return []
-
-            detailed_videos_info = []
-            batch_size = 50
-            for i in range(0, len(video_ids), batch_size):
-                 batch_ids = video_ids[i:i + batch_size]
-                 ids_str = ','.join(batch_ids)
-
-                 video_request = youtube.videos().list(
-                     part='snippet,statistics,contentDetails',
-                     id=ids_str
-                 )
-                 video_response = video_request.execute()
-                 video_items = video_response.get('items', [])
-
-                 for video_item in video_items:
-                     vid = video_item.get('id')
-                     if not vid: continue
-
-                     snippet = video_item.get('snippet', {})
-                     stats = video_item.get('statistics', {})
-                     content = video_item.get('contentDetails', {})
-                     search_snippet = video_details.get(vid, {})
-
-                     title = snippet.get('title', '无标题')
-                     published_at_search = search_snippet.get('publishedAt', '')
-                     published_at_video = snippet.get('publishedAt', '')
-                     published_display = published_at_search[:10] if published_at_search else (published_at_video[:10] if published_at_video else '未知')
-
-                     view_count = format_large_number(stats.get('viewCount'))
-                     like_count = format_large_number(stats.get('likeCount'))
-                     favorite_count = 'N/A' # API 不直接提供
-                     comment_count = format_large_number(stats.get('commentCount', '0')) # 评论可能被禁用，默认为0
-                     duration = format_duration(content.get('duration'))
-
-                     detailed_videos_info.append({
-                         'id': vid,
-                         'name': title,
-                         'views': view_count,
-                         'likes': like_count,
-                         'favorites': favorite_count,
-                         'comments': comment_count,
-                         'published': published_display,
-                         'duration': duration
-                     })
-
-            return detailed_videos_info
-
-        except Exception as e:
-            print(f"调用 YouTube API 时出错: {e}")
-            error_message = f"搜索视频时发生错误: {e}"
-            if "quotaExceeded" in str(e):
-                 error_message = "YouTube API 配额已用尽。请稍后重试或检查您的配额限制。"
-            elif "invalidKey" in str(e):
-                 error_message = "无效的 YouTube API Key。请检查 config.json 中的配置。"
-            elif "accessNotConfigured" in str(e) or "forbidden" in str(e).lower():
-                 error_message = "YouTube API 未启用或无权访问。请检查 Google Cloud 项目设置。"
-            self.root.after(0, lambda: messagebox.showerror("API 错误", error_message))
-            return None
+    # --- 旧的 search_videos 方法已移除，逻辑移至 youtube.py ---
 
     # 正确缩进 open_settings_window 方法定义
     def open_settings_window(self):
