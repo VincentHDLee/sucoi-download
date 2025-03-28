@@ -18,7 +18,7 @@ def create_tab(notebook, main_app_instance):
     button_frame = tk.Frame(tiktok_frame)
     # TODO: 按钮功能需要连接到主程序的通用下载队列或模块内部逻辑
     add_button = tk.Button(button_frame, text="添加到下载队列", command=lambda: add_tiktok_urls(url_text, main_app_instance))
-    download_now_button = tk.Button(button_frame, text="立即下载选中项", command=lambda: download_tiktok_urls(url_text, main_app_instance))
+    download_now_button = tk.Button(button_frame, text="立即下载", command=lambda: download_tiktok_urls(url_text, main_app_instance)) # 修改按钮文本
 
     # --- TikTok 布局 ---
     url_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 10), pady=5)

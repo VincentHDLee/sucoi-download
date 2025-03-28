@@ -18,9 +18,7 @@ class Sucoidownload:
         self.config_manager = ConfigManager()
         self.api_key = self.config_manager.get_config('api_key') # YouTube API Key (主程序需要读取以传递给模块)
 
-        # --- 定义通用控件 ---
-        self.status_label = tk.Label(self.root, text="状态: 就绪")
-        self.settings_button = tk.Button(self.root, text="设置", command=self.open_settings_window)
+        # --- 定义通用控件 (创建移至下方对应框架) ---
 
         # --- 全局下载列表框架和 Treeview ---
         self.download_frame = ttk.LabelFrame(self.root, text="下载列表")
@@ -36,40 +34,46 @@ class Sucoidownload:
 
         # --- 路径选择 (通用) ---
         self.path_var = tk.StringVar()
-        self.path_entry = tk.Entry(self.root, textvariable=self.path_var)
-        self.path_button = tk.Button(self.root, text="选择下载路径", command=self.select_path)
+        # path_entry 和 path_button 创建移至下方 path_frame
         self._initialize_download_path()
         self.path_var.trace_add("write", self.save_download_path_to_config)
 
         # --- 主窗口布局 ---
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=0) # Top frame
-        self.root.rowconfigure(1, weight=1) # Notebook
-        self.root.rowconfigure(2, weight=1) # Download frame (占据剩余垂直空间)
+        self.root.columnconfigure(0, weight=1) # 列 0 拉伸
+        self.root.rowconfigure(0, weight=0) # top_frame (不拉伸)
+        self.root.rowconfigure(1, weight=0) # path_frame (不拉伸)
+        self.root.rowconfigure(2, weight=1) # notebook (垂直拉伸)
+        self.root.rowconfigure(3, weight=1) # download_frame (垂直拉伸)
 
-        # --- 顶部区域 (包含状态、路径选择、设置) ---
+        # --- 顶部区域 (状态、设置) ---
         top_frame = tk.Frame(self.root)
-        top_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
-        top_frame.columnconfigure(0, weight=0) # Status label (不拉伸)
-        top_frame.columnconfigure(1, weight=0) # Path button (不拉伸)
-        top_frame.columnconfigure(2, weight=1) # Path entry (拉伸占据剩余空间)
-        top_frame.columnconfigure(3, weight=0) # Settings button (不拉伸)
+        top_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 0)) # 底部暂时不需要额外间距，由 path_frame 控制
+        top_frame.columnconfigure(0, weight=1) # Status label (拉伸占据左侧空间)
+        top_frame.columnconfigure(1, weight=0) # Settings button (不拉伸)
 
-        # 状态标签
-        self.status_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 10)) # 右侧加间距
+        # 在 top_frame 中创建并布局控件
+        self.status_label = tk.Label(top_frame, text="状态: 就绪")
+        self.status_label.grid(row=0, column=0, sticky=tk.W)
 
-        # 路径选择按钮 - 注意：这些控件在 __init__ 的 37-42 行已创建
-        self.path_button.grid(row=0, column=1, sticky=tk.W, padx=(0, 5)) # 右侧加间距
+        self.settings_button = tk.Button(top_frame, text="设置", command=self.open_settings_window)
+        self.settings_button.grid(row=0, column=1, sticky=tk.E, padx=(10, 0))
 
-        # 路径输入框
-        self.path_entry.grid(row=0, column=2, sticky=tk.EW) # 水平拉伸
+        # --- 路径选择区域 ---
+        path_frame = tk.Frame(self.root)
+        path_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(5, 5)) # 上下加间距
+        path_frame.columnconfigure(1, weight=1) # 让输入框占据剩余空间
 
-        # 设置按钮
-        self.settings_button.grid(row=0, column=3, sticky=tk.E, padx=(10, 0)) # 左侧加间距
+        # 在 path_frame 中创建并布局控件
+        self.path_button = tk.Button(path_frame, text="选择下载路径", command=self.select_path)
+        self.path_button.grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
+
+        self.path_entry = tk.Entry(path_frame, textvariable=self.path_var) # 使用之前创建的 self.path_var
+        self.path_entry.grid(row=0, column=1, sticky=tk.EW)
+
 
         # --- 创建 Notebook (中部区域) ---
         self.notebook = ttk.Notebook(self.root)
-        self.notebook.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+        self.notebook.grid(row=2, column=0, sticky="nsew", padx=10, pady=5) # 行号改为 2
 
         # --- 创建并添加平台标签页 ---
         self.platform_tabs = {}
@@ -90,7 +94,7 @@ class Sucoidownload:
                 self._add_error_tab(name, f"加载界面失败:\n{e}")
 
         # --- 下载列表布局 (全局) ---
-        self.download_frame.grid(row=2, column=0, sticky='nsew', padx=10, pady=5)
+        self.download_frame.grid(row=3, column=0, sticky='nsew', padx=10, pady=5) # 行号改为 3
 
         # --- 底部区域 (路径选择) --- 已移动到顶部区域 ---
 

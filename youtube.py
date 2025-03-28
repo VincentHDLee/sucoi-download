@@ -247,14 +247,14 @@ def create_tab(notebook, app):
     app.youtube_add_button.grid(row=1, column=2, sticky=tk.W, padx=(0, 5), pady=5)
     app.youtube_download_button.grid(row=1, column=3, sticky=tk.W, padx=(0, 5), pady=5)
 
-    # 筛选条件放在第 2, 3 行
-    duration_label.grid(row=2, column=0, sticky=tk.W, padx=(10,0), pady=5)
-    duration_combo.grid(row=2, column=1, columnspan=4, sticky=tk.EW, padx=(0,10), pady=5)
-    order_label.grid(row=3, column=0, sticky=tk.W, padx=(10,0), pady=5)
-    order_combo.grid(row=3, column=1, columnspan=4, sticky=tk.EW, padx=(0,10), pady=5)
+    # 筛选条件放在第 2 行
+    duration_label.grid(row=2, column=0, sticky=tk.E, padx=(10, 5), pady=5) # 右对齐标签
+    duration_combo.grid(row=2, column=1, sticky=tk.W, padx=(0, 10), pady=5) # 左对齐下拉框
+    order_label.grid(row=2, column=2, sticky=tk.E, padx=(10, 5), pady=5)    # 右对齐标签
+    order_combo.grid(row=2, column=3, sticky=tk.W, padx=(0, 10), pady=5)     # 左对齐下拉框
 
-    # 搜索结果表格放在第 4 行
-    app.youtube_search_frame.grid(row=4, column=0, columnspan=5, sticky='nsew', padx=10, pady=5)
+    # 搜索结果表格放在第 3 行
+    app.youtube_search_frame.grid(row=3, column=0, columnspan=4, sticky='nsew', padx=10, pady=5) # 修正缩进，行号改为 3, columnspan 改为 4
 
     return youtube_tab
 

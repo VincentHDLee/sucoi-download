@@ -52,9 +52,8 @@
     *   (可选) 修改 `default_download_path` 为你希望的默认下载路径。
     *   或者，在程序启动后，点击右上角的 "设置" 按钮进行配置。
 
-4.  **运行程序**:
-    *   **Windows**: 直接运行 `python sucoi-download/sucoidownload.py` (确保在 `TTKdownloader` 目录下执行)。
-    *   **Linux/macOS/Git Bash/WSL**: 运行 `cd sucoi-download && ../start.sh` (首次运行可能需要 `chmod +x start.sh`)。
+4.  **运行程序** (在 `sucoi-download` 目录下):
+    *   **Windows**: 双击 `start.bat` 文件，或在命令行运行 `python sucoidownload.py`。
 
 5.  **界面操作**:
     *   **选择平台**: 点击顶部的 "YouTube" 或 "TikTok" 标签页。
