@@ -19,3 +19,6 @@ Thumbs.db
 # IDE / Editor specific
 .vscode/
 .idea/
+
+# Configuration file (contains sensitive data)
+config.json
