@@ -33,6 +33,21 @@ class Sucoidownload:
         self.download_frame.grid_columnconfigure(0, weight=1)
 
 
+        # --- 下载列表下方的控件 --- 
+        controls_frame = tk.Frame(self.download_frame)
+        controls_frame.grid(row=1, column=0, columnspan=2, sticky=tk.EW, padx=5, pady=5)
+        controls_frame.columnconfigure(0, weight=1) # 让进度条占据大部分空间
+        controls_frame.columnconfigure(1, weight=0) # 按钮不拉伸
+
+        # 创建进度条
+        self.progress_bar = ttk.Progressbar(controls_frame, orient=tk.HORIZONTAL, length=100, mode='determinate')
+        self.progress_bar.grid(row=0, column=0, sticky=tk.EW, padx=(0, 10))
+
+        # 创建移除按钮 (移到 controls_frame 中)
+        remove_button = tk.Button(controls_frame, text="移除选中项", command=self.remove_selected_downloads)
+        remove_button.grid(row=0, column=1, sticky=tk.E) # 靠右
+
+
         # 在 download_frame 中添加移除按钮
         remove_button = tk.Button(self.download_frame, text="移除选中项", command=self.remove_selected_downloads)
         remove_button.grid(row=1, column=0, columnspan=2, sticky=tk.E, padx=5, pady=5) # 放在 Treeview 下方，靠右
@@ -180,7 +195,7 @@ class Sucoidownload:
             self.path_var.set(os.path.abspath(folder))
 
     def update_download_progress(self, progress_data):
-        """由平台模块调用的回调函数，用于在主线程更新全局下载列表。"""
+        """由平台模块调用的回调函数，用于在主线程更新全局下载列表和进度条。"""
         item_id = progress_data.get('id') # 使用 platform_videoid 作为 Treeview 的 iid
         if not item_id:
             print("警告: 收到缺少 id 的进度回调数据:", progress_data)
@@ -192,8 +207,9 @@ class Sucoidownload:
 
                 status = progress_data.get('status')
                 if status == 'preparing':
-                     self.download_tree.set(item_id, column='status', value="准备下载")
-                     self.download_tree.set(item_id, column='description', value='')
+                    self.download_tree.set(item_id, column='status', value="准备下载")
+                    self.download_tree.set(item_id, column='description', value='')
+                    self.progress_bar['value'] = 0 # 重置进度条
                 elif status == 'downloading':
                     values_to_set = {
                         'filename': progress_data.get('filename', self.download_tree.set(item_id, 'filename')),
@@ -203,7 +219,16 @@ class Sucoidownload:
                         'speed': progress_data.get('speed', 'N/A'),
                         'description': ''
                     }
-                    for col, value in values_to_set.items(): self.download_tree.set(item_id, column=col, value=value)
+                    # 更新进度条
+                    percent_str = progress_data.get('percent', '0%')
+                    try:
+                        percent_value = float(percent_str.strip('%'))
+                    except ValueError:
+                        percent_value = 0.0
+                    self.progress_bar['value'] = percent_value
+                    # 更新 Treeview
+                    for col, value in values_to_set.items():
+                        self.download_tree.set(item_id, column=col, value=value)
                 elif status == 'finished':
                     values_to_set = {
                         'filename': progress_data.get('filename', self.download_tree.set(item_id, 'filename')),
@@ -211,10 +236,16 @@ class Sucoidownload:
                         'status': "下载完成", 'eta': '0s', 'speed': '',
                         'description': progress_data.get('description', '完成')
                     }
-                    for col, value in values_to_set.items(): self.download_tree.set(item_id, column=col, value=value)
+                    self.progress_bar['value'] = 100 # 完成时设置为 100%
+                    # 更新 Treeview
+                    for col, value in values_to_set.items():
+                        self.download_tree.set(item_id, column=col, value=value)
                 elif status == 'error':
                     values_to_set = {'status': "下载出错", 'description': progress_data.get('description', '未知错误')}
-                    for col, value in values_to_set.items(): self.download_tree.set(item_id, column=col, value=value)
+                    self.progress_bar['value'] = 0 # 出错时重置进度条
+                    # 更新 Treeview
+                    for col, value in values_to_set.items():
+                         self.download_tree.set(item_id, column=col, value=value)
             except Exception as e:
                 print(f"在 update_download_progress 中更新 Treeview 时出错 (iid={item_id}, data={progress_data}): {e}")
         self.root.after(0, do_update)
