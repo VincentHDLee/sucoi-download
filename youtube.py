@@ -139,47 +139,86 @@ def _youtube_progress_hook(d):
     try: _progress_callback(progress_data)
     except Exception as cb_e: print(f"调用进度回调时出错: {cb_e}")
 
-def download_videos(video_ids, output_path, progress_callback=None):
+def download_videos(app, video_ids, output_path, progress_callback=None): # 添加 app 参数
     """
     使用 yt-dlp 下载指定的 YouTube 视频列表。
-    返回: tuple (成功数量, 失败数量)
+    支持通过 app.cancel_requested 标志中断。
+    返回: tuple (成功数量, 失败/取消数量)
     """
-    global _progress_callback
-    _progress_callback = progress_callback
-    # ... (ydl_opts 定义同上, 省略) ...
+    global _progress_callback # 注意: global 在这里可能不是最佳实践，但暂不修改
+    original_callback = progress_callback # 保存原始回调
+    final_statuses = {} # 用于记录每个视频的最终状态 (finished, error, cancelled)
+
+    # 包装回调，用于记录最终状态并调用原始回调
+    def status_recorder_callback(data):
+        nonlocal final_statuses
+        vid = data.get('info_dict', {}).get('id') or data.get('id') # 尝试从 info_dict 获取 ID
+        status = data.get('status')
+        if vid and status in ('finished', 'error'):
+            final_statuses[vid] = status
+            # print(f"记录最终状态: {vid} -> {status}") # 调试用
+        if original_callback:
+            try:
+                original_callback(data) # 调用原始回调传递给主程序
+            except Exception as cb_e:
+                 print(f"原始回调出错: {cb_e}")
+
+    _progress_callback = status_recorder_callback # 在下载期间使用包装后的回调
+
     ydl_opts = {
         'outtmpl': os.path.join(output_path, '%(title)s [%(id)s].%(ext)s'),
-        'progress_hooks': [_youtube_progress_hook],
+        'progress_hooks': [_youtube_progress_hook], # 钩子内部会调用 _progress_callback
         'quiet': False,'noplaylist': True,'encoding': 'utf-8',
         'nocheckcertificate': True, 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'ignoreerrors': True,
+        'ignoreerrors': True, # 使得即使部分下载失败，循环也能继续
     }
-    download_success_count = 0
-    download_error_count = 0
-    final_statuses = {}
-    def set_final_status(data):
-        nonlocal final_statuses
-        vid = data.get('id')
-        status = data.get('status')
-        if vid and status in ('finished', 'error'): final_statuses[vid] = status
-        if _progress_callback: _progress_callback(data)
-    _progress_callback = set_final_status
-    for video_id in video_ids:
+
+    processed_count = 0
+    for index, video_id in enumerate(video_ids):
+        # 在每次循环开始时检查取消标志
+        if app.cancel_requested:
+            print(f"下载任务被用户取消。停止处理 video_id: {video_id}")
+            # 将剩余未处理的任务标记为取消
+            remaining_ids = video_ids[index:]
+            for rem_id in remaining_ids:
+                if rem_id not in final_statuses: # 避免覆盖已完成或已出错的状态
+                     final_statuses[rem_id] = 'cancelled'
+                     if _progress_callback:
+                          _progress_callback({'id': rem_id, 'status': 'error', 'description': '用户取消'})
+            break # 跳出循环
+
         url = f"https://www.youtube.com/watch?v={video_id}"
-        final_statuses[video_id] = 'pending'
-        if _progress_callback: _progress_callback({'id': video_id, 'status': 'preparing'})
+        if video_id not in final_statuses: # 可能在钩子中已被标记为 error
+            final_statuses[video_id] = 'pending' # 初始化状态
+        if _progress_callback:
+            _progress_callback({'id': video_id, 'status': 'preparing'})
         try:
+            # 为每个视频创建一个新的 YoutubeDL 实例，避免状态污染
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
+                # 下载成功与否最终由 status_recorder_callback 记录到 final_statuses
         except Exception as e:
-            print(f"下载视频 {url} 时发生严重初始化错误: {e}")
-            final_statuses[video_id] = 'error'
-            if _progress_callback: _progress_callback({'id': video_id, 'status': 'error', 'description': str(e)[:100]})
-    for vid, status in final_statuses.items():
-        if status != 'error': download_success_count += 1
-        else: download_error_count += 1
-    _progress_callback = None
-    return download_success_count, download_error_count
+            # 捕获初始化或下载过程中的严重错误
+            print(f"下载视频 {url} 时发生严重错误: {e}")
+            final_statuses[video_id] = 'error' # 标记为错误
+            if _progress_callback:
+                _progress_callback({'id': video_id, 'status': 'error', 'description': str(e)[:100]})
+        processed_count += 1
+
+    # 根据最终记录的状态统计成功和失败/取消
+    actual_success = 0
+    actual_error_or_cancelled = 0
+    for vid in video_ids:
+        status = final_statuses.get(vid, 'unknown') # 获取最终状态
+        if status == 'finished':
+            actual_success += 1
+        else: # pending, error, cancelled, unknown 都算作失败/取消
+            actual_error_or_cancelled += 1
+            if status == 'unknown' and vid in video_ids[:processed_count]: # 如果处理过但没记录到状态，也算错误
+                print(f"警告: 视频 {vid} 状态未知，计为错误。")
+
+    _progress_callback = original_callback # 恢复原始回调，以防万一
+    return actual_success, actual_error_or_cancelled
 
 # --- GUI Creation ---
 def create_tab(notebook, app):

@@ -18,6 +18,8 @@ class Sucoidownload:
         self.config_manager = ConfigManager()
         self.api_key = self.config_manager.get_config('api_key') # YouTube API Key (主程序需要读取以传递给模块)
 
+        self.cancel_requested = False # 用于取消下载的标志
+
         # --- 定义通用控件 (创建移至下方对应框架) ---
 
         # --- 全局下载列表框架和 Treeview ---
@@ -46,6 +48,14 @@ class Sucoidownload:
         # 创建移除按钮 (移到 controls_frame 中)
         remove_button = tk.Button(controls_frame, text="移除选中项", command=self.remove_selected_downloads)
         remove_button.grid(row=0, column=1, sticky=tk.E) # 靠右
+
+        # 在 controls_frame 中添加停止按钮
+        stop_button = tk.Button(controls_frame, text="停止下载", command=self.cancel_download)
+        stop_button.grid(row=0, column=2, sticky=tk.E, padx=(10, 0)) # 放在最右侧
+
+        # 调整 controls_frame 列配置以容纳新按钮
+        controls_frame.columnconfigure(2, weight=0)
+
 
 
         # 在 download_frame 中添加移除按钮
@@ -253,6 +263,8 @@ class Sucoidownload:
     def start_download(self):
         """从全局下载列表获取任务，并在新线程中启动下载过程"""
         output_path = self.path_var.get()
+        self.cancel_requested = False # 重置取消标志
+
         if not output_path:
             messagebox.showwarning("警告", "请选择保存路径！"); return
 
@@ -285,7 +297,8 @@ class Sucoidownload:
         def download_task_wrapper(platform_module, ids, path):
             nonlocal total_success, total_error
             if hasattr(platform_module, 'download_videos'):
-                success_count, error_count = platform_module.download_videos(ids, path, self.update_download_progress)
+                # 将 self (app 实例) 作为第一个参数传递
+                success_count, error_count = platform_module.download_videos(self, ids, path, self.update_download_progress)
                 total_success += success_count; total_error += error_count
             else:
                  print(f"错误: 平台模块 {platform_module.__name__}缺少 download_videos 函数。"); total_error += len(ids)
@@ -468,6 +481,18 @@ class Sucoidownload:
         width = settings_window.winfo_reqwidth() + 20; height = settings_window.winfo_reqheight() + 20
         main_x, main_y = self.root.winfo_x(), self.root.winfo_y(); main_width, main_height = self.root.winfo_width(), self.root.winfo_height()
         x = main_x + (main_width // 2) - (width // 2); y = main_y + (main_height // 2) - (height // 2)
+
+    def cancel_download(self):
+        """设置取消标志，尝试停止当前的下载任务。"""
+        if not self.cancel_requested:
+            self.cancel_requested = True
+            self.status_label.config(text="状态: 正在请求停止下载...")
+            # 注意：这不一定能立即停止当前正在下载的文件
+            # 依赖于下载循环或 yt-dlp 钩子检查此标志
+        else:
+            self.status_label.config(text="状态: 已请求停止下载")
+
+
         settings_window.geometry(f'{width}x{height}+{x}+{y}'); settings_window.resizable(False, False)
 
     def save_settings(self, api_key, download_path, window, placeholder_api, placeholder_pth):

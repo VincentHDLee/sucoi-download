@@ -71,52 +71,91 @@ def download_tiktok_urls(url_text_widget, app):
     download_thread.start()
 
 def _perform_tiktok_download(urls, output_path, app):
-    """执行 TikTok 视频下载的后台函数。"""
-    # 更新主程序状态 (示例)
+    """执行 TikTok 视频下载的后台函数，支持取消。"""
     app.status_label.config(text=f"状态: 开始下载 {len(urls)} 个 TikTok 视频...")
 
-    # yt-dlp 配置 (可根据 TikTok 特点调整)
     ydl_opts = {
-        # 使用标题作为文件名 (参考旧代码)
         'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
-        'quiet': False,
-        'noplaylist': True, # 确保只下载单个视频
-        'encoding': 'utf-8',
+        'quiet': False, 'noplaylist': True, 'encoding': 'utf-8',
         'nocheckcertificate': True,
-        # TikTok 可能不需要特定格式
-        # 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'ignoreerrors': True,
-        # 可选: 添加 progress_hooks 并通过回调更新 GUI (如果需要显示进度)
-        # 'progress_hooks': [lambda d: app.update_download_progress(d)],
+        'ignoreerrors': True, # ignoreerrors 保证即使出错也继续循环
+        # 注意: 如果需要精细进度更新，需要添加 progress_hooks 并确保回调能处理 TikTok ID
+        # 'progress_hooks': [lambda d: _tiktok_progress_hook(d, app)],
     }
 
     success_count = 0
     error_count = 0
+    cancelled_count = 0
+    processed_count = 0
 
     try:
+        # 在循环外创建实例以复用
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # 尝试下载所有 URL
-            ydl.download(urls)
-            # 注意：由于 ignoreerrors=True，即使部分失败，这里也可能不抛异常
-            # 更可靠的方法是分析 ydl.extract_info 的返回值或使用 progress hook
-            # 简化处理：假设没有异常就是全部成功（可能不准确）
-            success_count = len(urls) # 暂定全部成功
-            # TODO: 需要更精确的成功/失败计数
+            for index, url in enumerate(urls):
+                processed_count += 1
+                # 检查取消标志
+                if app.cancel_requested:
+                    print(f"TikTok 下载任务被用户取消。停止处理 URL: {url}")
+                    cancelled_count = len(urls) - index
+                    error_count += cancelled_count # 将取消的计入错误总数
+                    # 发送取消状态给主程序 (如果需要)
+                    # remaining_ids = urls[index:]
+                    # for i, rem_url in enumerate(remaining_ids):
+                    #    if hasattr(app, 'update_download_progress'):
+                    #        # 需要为 TikTok 定义一个合适的、唯一的 ID
+                    #        tiktok_id = f"tiktok_{rem_url[-19:]}" # 简单示例 ID
+                    #        app.update_download_progress({'id': tiktok_id, 'status': 'error', 'description': '用户取消'})
+                    break # 跳出循环
+
+                # TODO: 发送 preparing 状态 (需要唯一 ID)
+                # tiktok_id = f"tiktok_{url[-19:]}"
+                # if hasattr(app, 'update_download_progress'):
+                #     app.update_download_progress({'id': tiktok_id, 'status': 'preparing'})
+
+                try:
+                    print(f"开始下载 TikTok URL: {url}")
+                    ydl.download([url])
+                    # 注意: 由于 ignoreerrors=True，这里不抛错不代表一定成功
+                    # 需要更可靠的方式判断，例如检查钩子记录的状态或文件是否存在
+                    # 简化处理：暂定执行完 download 就算成功
+                    success_count += 1
+                    print(f"完成 TikTok URL: {url}")
+                    # TODO: 发送 finished 状态 (需要唯一 ID)
+                    # if hasattr(app, 'update_download_progress'):
+                    #     app.update_download_progress({'id': tiktok_id, 'status': 'finished'})
+                except Exception as e:
+                    # 一般 download 设置 ignoreerrors 后不太会在这里出错，除非是严重错误
+                    print(f"下载 TikTok URL {url} 时出错: {e}")
+                    error_count += 1
+                    # TODO: 发送 error 状态 (需要唯一 ID)
+                    # if hasattr(app, 'update_download_progress'):
+                    #     app.update_download_progress({'id': tiktok_id, 'status': 'error', 'description': str(e)[:100]})
 
     except Exception as e:
-        print(f"下载 TikTok 视频时出错: {e}")
-        error_count = len(urls) # 暂定全部失败
+        # 捕获创建 YoutubeDL 实例或循环外的其他错误
+        print(f"TikTok 下载过程中发生严重错误: {e}")
+        # 将剩余未处理或处理中的计为错误
+        error_count = len(urls) - success_count
 
     # 更新主程序状态和提示 (在主线程中)
     def final_update():
-        final_message = f"TikTok 下载完成！尝试: {len(urls)}, 成功: {success_count} (预估), 失败: {error_count} (预估)"
+        total_attempted = processed_count # 实际处理的 URL 数量
+        final_error_count = error_count # 包括取消和下载失败
+        final_message = f"TikTok 下载完成！尝试: {total_attempted}/{len(urls)}, 成功: {success_count}, 失败/取消: {final_error_count}"
         app.status_label.config(text=f"状态: {final_message}")
-        if error_count > 0:
-             messagebox.showwarning("TikTok 下载", final_message + "\n部分下载可能失败，请检查输出文件夹。")
+        if final_error_count > 0:
+             messagebox.showwarning("TikTok 下载", final_message + "\n部分下载可能失败或被取消。")
         else:
              messagebox.showinfo("TikTok 下载", final_message)
 
     app.root.after(0, final_update)
+
+# TODO: (可选) 实现 TikTok 的 progress hook
+# def _tiktok_progress_hook(d, app):
+#     # 需要从 d 中提取唯一标识符 (可能需要解析 URL 或 info_dict)
+#     # ...
+#     # 调用 app.update_download_progress(...)
+#     pass
 
 # 可选的测试代码
 if __name__ == '__main__':
