@@ -37,19 +37,31 @@ def _format_large_number(num_str):
          return num_str if num_str else "0"
 
 # --- Search Function ---
-def search_videos(api_key, query, max_results=50):
+def search_videos(api_key, query, max_results=50, video_duration='any', order='relevance'):
     """
     使用 YouTube Data API 搜索视频并获取详细信息。
+    支持按时长和排序方式筛选。
     返回: (list | None, str | None) - (结果列表, 错误消息)
     """
-    # ... (代码同上, 省略) ...
     if not api_key or api_key == 'YOUR_YOUTUBE_DATA_API_KEY_HERE':
         return None, "无效或未配置 YouTube API Key。"
     try:
         youtube = build('youtube', 'v3', developerKey=api_key)
-        search_request = youtube.search().list(
-            part='snippet', q=query, type='video', maxResults=max_results
-        )
+
+        # 构建基础搜索参数
+        search_params = {
+            'part': 'snippet',
+            'q': query,
+            'type': 'video',
+            'maxResults': max_results,
+            'order': order  # 始终传递 order 参数
+        }
+        # 仅当 video_duration 不是默认值 'any' 时才添加 videoDuration 参数
+        if video_duration != 'any':
+            search_params['videoDuration'] = video_duration
+
+        # 使用解包方式传递参数
+        search_request = youtube.search().list(**search_params)
         search_response = search_request.execute()
         search_items = search_response.get('items', [])
         video_details = {}

@@ -32,6 +32,11 @@ class Sucoidownload:
         self.download_frame.grid_rowconfigure(0, weight=1)
         self.download_frame.grid_columnconfigure(0, weight=1)
 
+
+        # 在 download_frame 中添加移除按钮
+        remove_button = tk.Button(self.download_frame, text="移除选中项", command=self.remove_selected_downloads)
+        remove_button.grid(row=1, column=0, columnspan=2, sticky=tk.E, padx=5, pady=5) # 放在 Treeview 下方，靠右
+
         # --- 路径选择 (通用) ---
         self.path_var = tk.StringVar()
         # path_entry 和 path_button 创建移至下方 path_frame
@@ -92,6 +97,10 @@ class Sucoidownload:
             except Exception as e:
                 print(f"加载 {name} 模块 UI 时出错: {e}")
                 self._add_error_tab(name, f"加载界面失败:\n{e}")
+
+
+        # 绑定下载列表点击事件，用于切换选择框
+        self.download_tree.bind('<Button-1>', self._toggle_download_selection)
 
         # --- 下载列表布局 (全局) ---
         self.download_frame.grid(row=3, column=0, sticky='nsew', padx=10, pady=5) # 行号改为 3
@@ -291,47 +300,67 @@ class Sucoidownload:
              messagebox.showinfo("提示", "当前平台不支持搜索功能。", parent=self.root)
 
     def _handle_youtube_search(self):
-         """处理 YouTube 搜索的内部逻辑。"""
-         try:
-             query = self.youtube_keyword_entry.get().strip()
-             # TODO: 获取筛选参数
-             # duration_filter = self.youtube_duration_var.get()
-             # order_filter = self.youtube_order_var.get()
-             if not query: messagebox.showwarning("搜索", "请输入搜索关键词！", parent=self.youtube_tab); return
-         except AttributeError: messagebox.showerror("错误", "YouTube 搜索控件未正确初始化！"); return
-         if not self.api_key or self.api_key == 'YOUR_YOUTUBE_DATA_API_KEY_HERE':
-             messagebox.showerror("API Key 错误", "无效或未配置 YouTube API Key。\n请在设置中配置后重试。"); return
+        """处理 YouTube 搜索的内部逻辑。"""
+        try:
+            query = self.youtube_keyword_entry.get().strip()
+            duration_selection = self.youtube_duration_var.get()
+            order_selection = self.youtube_order_var.get()
+            if not query: messagebox.showwarning("搜索", "请输入搜索关键词！", parent=self.youtube_tab); return
+        except AttributeError as e: messagebox.showerror("错误", f"YouTube 搜索控件未正确初始化！\n{e}"); return
 
-         self.status_label.config(text="状态: 正在搜索..."); self.disable_controls(True); self.root.update_idletasks()
+        if not self.api_key or self.api_key == 'YOUR_YOUTUBE_DATA_API_KEY_HERE':
+            messagebox.showerror("API Key 错误", "无效或未配置 YouTube API Key。\n请在设置中配置后重试。"); return
 
-         def search_task():
-             videos_info, error_msg = youtube.search_videos(self.api_key, query) # TODO: 传入筛选参数
-             self.root.after(0, update_youtube_search_results, videos_info, error_msg)
+        # --- 将 GUI 选择映射到 API 参数 ---
+        duration_map = {
+            "任意": "any", "短片 (<4分钟)": "short", "中等 (4-20分钟)": "medium", "长片 (>20分钟)": "long"
+        }
+        order_map = {
+            "相关性": "relevance", "上传日期": "date", "观看次数": "viewCount", "评分": "rating"
+            # 注意：API 可能不支持所有排序方式与所有查询的组合
+        }
+        duration_api_value = duration_map.get(duration_selection, 'any') # 默认为 'any'
+        order_api_value = order_map.get(order_selection, 'relevance') # 默认为 'relevance'
+        # --- 映射结束 ---
 
-         def update_youtube_search_results(videos_info, error_msg):
-             self.disable_controls(False)
-             try:
-                 tree = self.youtube_search_tree # 访问挂载的属性
-                 for i in tree.get_children(): tree.delete(i)
-             except AttributeError: print("错误：无法访问 youtube_search_tree。"); self.status_label.config(text="状态: 内部错误"); return
+        self.status_label.config(text="状态: 正在搜索..."); self.disable_controls(True); self.root.update_idletasks()
 
-             if error_msg: self.status_label.config(text="状态: 搜索出错"); messagebox.showerror("搜索错误", error_msg); return
-             elif videos_info is None: self.status_label.config(text="状态: 搜索出错"); messagebox.showerror("搜索错误", "发生未知错误"); return
+        # 将筛选参数传递给后台任务
+        def search_task(duration_param, order_param):
+            videos_info, error_msg = youtube.search_videos(
+                self.api_key, query,
+                video_duration=duration_param, order=order_param
+            )
+            self.root.after(0, update_youtube_search_results, videos_info, error_msg)
 
-             if videos_info:
-                 for video in videos_info:
-                     try:
-                         tree.insert('', tk.END, values=(
-                             video.get('name', ''), video.get('views', '0'), video.get('likes', '0'),
-                             video.get('favorites', 'N/A'), video.get('comments', '0'),
-                             video.get('published', ''), video.get('duration', '')), iid=video.get('id'))
-                     except Exception as e: print(f"插入 YouTube 搜索结果时出错 (vid={video.get('id')}): {e}")
-                 self.status_label.config(text=f"状态: 找到 {len(videos_info)} 个视频")
-             else:
-                 self.status_label.config(text="状态: 未找到相关视频")
-                 messagebox.showinfo("搜索结果", "未找到与关键词匹配的视频。", parent=self.youtube_tab)
+        # 定义更新搜索结果的函数 (保持不变)
+        def update_youtube_search_results(videos_info, error_msg):
+            self.disable_controls(False)
+            try:
+                tree = self.youtube_search_tree # 访问挂载的属性
+                for i in tree.get_children(): tree.delete(i)
+            except AttributeError: print("错误：无法访问 youtube_search_tree。"); self.status_label.config(text="状态: 内部错误"); return
 
-         search_thread = Thread(target=search_task); search_thread.daemon = True; search_thread.start()
+            if error_msg: self.status_label.config(text="状态: 搜索出错"); messagebox.showerror("搜索错误", error_msg); return
+            elif videos_info is None: self.status_label.config(text="状态: 搜索出错"); messagebox.showerror("搜索错误", "发生未知错误"); return
+
+            if videos_info:
+                for video in videos_info:
+                    try:
+                        tree.insert('', tk.END, values=(
+                            video.get('name', ''), video.get('views', '0'), video.get('likes', '0'),
+                            video.get('favorites', 'N/A'), video.get('comments', '0'),
+                            video.get('published', ''), video.get('duration', '')), iid=video.get('id'))
+                    except Exception as e: print(f"插入 YouTube 搜索结果时出错 (vid={video.get('id')}): {e}")
+                self.status_label.config(text=f"状态: 找到 {len(videos_info)} 个视频")
+            else:
+                self.status_label.config(text="状态: 未找到相关视频")
+                messagebox.showinfo("搜索结果", "未找到与关键词匹配的视频。", parent=self.youtube_tab)
+
+        # 启动后台搜索线程，并传递筛选参数
+        search_thread = Thread(target=search_task, args=(duration_api_value, order_api_value))
+        search_thread.daemon = True
+        search_thread.start()
 
     def add_selected_to_download(self):
         """将活动标签页搜索结果中选中的项添加到全局下载列表。"""
@@ -415,6 +444,65 @@ class Sucoidownload:
         updates = {}; final_api_key = api_key if api_key != placeholder_api else ''; final_download_path = os.path.abspath(download_path) if download_path and download_path != placeholder_pth else ''
         updates['api_key'] = final_api_key; updates['default_download_path'] = final_download_path; self.config_manager.update_multiple_configs(updates)
         messagebox.showinfo("设置", "设置已保存。", parent=window); self.api_key = final_api_key; current_main_path = self.path_var.get(); new_default_path = final_download_path if final_download_path else self.get_fallback_download_path()
+
+    def _toggle_download_selection(self, event):
+        """处理下载列表 Treeview 的点击事件，切换第一列的选择状态。"""
+        region = self.download_tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return # 只处理单元格点击
+
+        column = self.download_tree.identify_column(event.x)
+        if column != '#1': # 假设 'select' 是第一列
+            return # 只处理第一列的点击
+
+        item_iid = self.download_tree.identify_row(event.y)
+        if not item_iid:
+            return # 未点击到有效行
+
+        # 获取当前状态并切换
+        current_value = self.download_tree.set(item_iid, column='select')
+        new_value = '☑' if current_value == '☐' else '☐'
+        self.download_tree.set(item_iid, column='select', value=new_value)
+
+    def remove_selected_downloads(self): # 确保此方法与 _toggle_download_selection 同级
+        """从下载列表中移除所有选中的项。"""
+        items_to_remove = []
+        for item_iid in self.download_tree.get_children(''):
+            try:
+                selection_state = self.download_tree.set(item_iid, column='select')
+                if selection_state == '☑':
+                    items_to_remove.append(item_iid)
+            except tk.TclError:
+                # 处理可能的错误，例如列不存在或值无效
+                print(f"检查行 {item_iid} 的选择状态时出错。")
+                continue
+
+        if not items_to_remove:
+            messagebox.showinfo("提示", "没有选中的下载项可移除。", parent=self.root)
+            return
+
+        if messagebox.askyesno("确认", f"确定要移除选中的 {len(items_to_remove)} 个下载项吗？", parent=self.root):
+            for item_iid in items_to_remove:
+                try:
+                    if self.download_tree.exists(item_iid):
+                        self.download_tree.delete(item_iid)
+                except tk.TclError:
+                    print(f"移除行 {item_iid} 时出错。")
+            self.status_label.config(text=f"状态: 移除了 {len(items_to_remove)} 个下载项。")
+
+
+            return # 只处理第一列的点击
+
+        item_iid = self.download_tree.identify_row(event.y)
+        if not item_iid:
+            return # 未点击到有效行
+
+        # 获取当前状态并切换
+        current_value = self.download_tree.set(item_iid, column='select')
+        new_value = '☑' if current_value == '☐' else '☐'
+        self.download_tree.set(item_iid, column='select', value=new_value)
+
+
         fallback_path = self.get_fallback_download_path()
         if final_download_path and current_main_path == fallback_path: self.path_var.set(new_default_path)
         elif not final_download_path and current_main_path != fallback_path: self.path_var.set(fallback_path)
