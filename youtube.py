@@ -285,27 +285,33 @@ def create_tab(notebook, app):
 
 
     # --- YouTube 标签页内部布局 ---
-    youtube_tab.columnconfigure(0, weight=1) # 搜索框/表格列
-    # ... 配置其他需要的列 ...
-    youtube_tab.columnconfigure(4, weight=0) # 最后一列按钮不扩展
+    # 配置列权重 (使用 4 列)
+    youtube_tab.columnconfigure(0, weight=0) # 标签列
+    youtube_tab.columnconfigure(1, weight=1) # 输入框/下拉框列 (主要拉伸)
+    youtube_tab.columnconfigure(2, weight=0) # 按钮列
+    youtube_tab.columnconfigure(3, weight=0) # 按钮列
+    # 配置行权重
     youtube_tab.rowconfigure(4, weight=1)    # 搜索结果表格行
 
-    keyword_label.grid(row=0, column=0, columnspan=5, sticky=tk.W, padx=10, pady=(5, 0))
-    app.youtube_keyword_entry.grid(row=1, column=0, columnspan=1, sticky=tk.EW, padx=(10, 5), pady=5) # 只占第一列
+    # 第 0 行: 关键词标签
+    keyword_label.grid(row=0, column=0, columnspan=4, sticky=tk.W, padx=10, pady=(5, 0))
 
-    # 按钮放在第 1 行
-    app.youtube_search_button.grid(row=1, column=1, sticky=tk.W, padx=(0, 5), pady=5)
-    app.youtube_add_button.grid(row=1, column=2, sticky=tk.W, padx=(0, 5), pady=5)
-    app.youtube_download_button.grid(row=1, column=3, sticky=tk.W, padx=(0, 5), pady=5)
+    # 第 1 行: 关键词输入框 + 搜索按钮
+    app.youtube_keyword_entry.grid(row=1, column=0, columnspan=3, sticky=tk.EW, padx=(10, 5), pady=5) # 占前3列
+    app.youtube_search_button.grid(row=1, column=3, sticky=tk.E, padx=(0, 10), pady=5) # 靠右
 
-    # 筛选条件放在第 2 行
-    duration_label.grid(row=2, column=0, sticky=tk.E, padx=(10, 5), pady=5) # 右对齐标签
-    duration_combo.grid(row=2, column=1, sticky=tk.W, padx=(0, 10), pady=5) # 左对齐下拉框
-    order_label.grid(row=2, column=2, sticky=tk.E, padx=(10, 5), pady=5)    # 右对齐标签
-    order_combo.grid(row=2, column=3, sticky=tk.W, padx=(0, 10), pady=5)     # 左对齐下拉框
+    # 第 2 行: 时长筛选 + 操作按钮
+    duration_label.grid(row=2, column=0, sticky=tk.E, padx=(10, 5), pady=5)
+    duration_combo.grid(row=2, column=1, sticky=tk.W, padx=(0, 5), pady=5)
+    app.youtube_add_button.grid(row=2, column=2, sticky=tk.E, padx=(5, 5), pady=5) # 靠右
+    app.youtube_download_button.grid(row=2, column=3, sticky=tk.E, padx=(0, 10), pady=5) # 靠右
 
-    # 搜索结果表格放在第 3 行
-    app.youtube_search_frame.grid(row=3, column=0, columnspan=4, sticky='nsew', padx=10, pady=5) # 修正缩进，行号改为 3, columnspan 改为 4
+    # 第 3 行: 排序筛选
+    order_label.grid(row=3, column=0, sticky=tk.E, padx=(10, 5), pady=5)
+    order_combo.grid(row=3, column=1, sticky=tk.W, padx=(0, 5), pady=5)
+
+    # 第 4 行: 搜索结果表格
+    app.youtube_search_frame.grid(row=4, column=0, columnspan=4, sticky='nsew', padx=10, pady=5) # 行号改为 4
 
     return youtube_tab
 

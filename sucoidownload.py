@@ -12,13 +12,13 @@ class Sucoidownload:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Sucoidownload - 模块化视频下载器")
-        self.root.geometry("750x600") # 调整初始大小
+        self.root.geometry("1280x720") # 调整初始大小
+
+        self.cancel_requested = False # 用于取消下载的标志
 
         # --- 配置管理器 ---
         self.config_manager = ConfigManager()
         self.api_key = self.config_manager.get_config('api_key') # YouTube API Key (主程序需要读取以传递给模块)
-
-        self.cancel_requested = False # 用于取消下载的标志
 
         # --- 定义通用控件 (创建移至下方对应框架) ---
 
@@ -34,33 +34,24 @@ class Sucoidownload:
         self.download_frame.grid_rowconfigure(0, weight=1)
         self.download_frame.grid_columnconfigure(0, weight=1)
 
-
-        # --- 下载列表下方的控件 --- 
+        # --- 下载列表下方的控件 ---
         controls_frame = tk.Frame(self.download_frame)
         controls_frame.grid(row=1, column=0, columnspan=2, sticky=tk.EW, padx=5, pady=5)
         controls_frame.columnconfigure(0, weight=1) # 让进度条占据大部分空间
-        controls_frame.columnconfigure(1, weight=0) # 按钮不拉伸
+        controls_frame.columnconfigure(1, weight=0) # 移除按钮不拉伸
+        controls_frame.columnconfigure(2, weight=0) # 停止按钮不拉伸
 
         # 创建进度条
         self.progress_bar = ttk.Progressbar(controls_frame, orient=tk.HORIZONTAL, length=100, mode='determinate')
         self.progress_bar.grid(row=0, column=0, sticky=tk.EW, padx=(0, 10))
 
-        # 创建移除按钮 (移到 controls_frame 中)
-        remove_button = tk.Button(controls_frame, text="移除选中项", command=self.remove_selected_downloads)
-        remove_button.grid(row=0, column=1, sticky=tk.E) # 靠右
+        # 创建移除按钮
+        self.remove_button = tk.Button(controls_frame, text="移除选中项", command=self.remove_selected_downloads) # 存为实例变量方便禁用
+        self.remove_button.grid(row=0, column=1, sticky=tk.E, padx=(0, 5)) # 靠右
 
-        # 在 controls_frame 中添加停止按钮
-        stop_button = tk.Button(controls_frame, text="停止下载", command=self.cancel_download)
-        stop_button.grid(row=0, column=2, sticky=tk.E, padx=(10, 0)) # 放在最右侧
-
-        # 调整 controls_frame 列配置以容纳新按钮
-        controls_frame.columnconfigure(2, weight=0)
-
-
-
-        # 在 download_frame 中添加移除按钮
-        remove_button = tk.Button(self.download_frame, text="移除选中项", command=self.remove_selected_downloads)
-        remove_button.grid(row=1, column=0, columnspan=2, sticky=tk.E, padx=5, pady=5) # 放在 Treeview 下方，靠右
+        # 创建停止按钮
+        self.stop_button = tk.Button(controls_frame, text="停止下载", command=self.cancel_download) # 存为实例变量方便禁用
+        self.stop_button.grid(row=0, column=2, sticky=tk.E, padx=(5, 0)) # 放在最右侧
 
         # --- 路径选择 (通用) ---
         self.path_var = tk.StringVar()
@@ -100,7 +91,6 @@ class Sucoidownload:
         self.path_entry = tk.Entry(path_frame, textvariable=self.path_var) # 使用之前创建的 self.path_var
         self.path_entry.grid(row=0, column=1, sticky=tk.EW)
 
-
         # --- 创建 Notebook (中部区域) ---
         self.notebook = ttk.Notebook(self.root)
         self.notebook.grid(row=2, column=0, sticky="nsew", padx=10, pady=5) # 行号改为 2
@@ -123,14 +113,11 @@ class Sucoidownload:
                 print(f"加载 {name} 模块 UI 时出错: {e}")
                 self._add_error_tab(name, f"加载界面失败:\n{e}")
 
-
-        # 绑定下载列表点击事件，用于切换选择框
-        self.download_tree.bind('<Button-1>', self._toggle_download_selection)
-
         # --- 下载列表布局 (全局) ---
         self.download_frame.grid(row=3, column=0, sticky='nsew', padx=10, pady=5) # 行号改为 3
 
-        # --- 底部区域 (路径选择) --- 已移动到顶部区域 ---
+        # 绑定下载列表点击事件，用于切换选择框
+        self.download_tree.bind('<Button-1>', self._toggle_download_selection)
 
         # --- 启动主循环 ---
         self.root.mainloop()
@@ -261,10 +248,9 @@ class Sucoidownload:
         self.root.after(0, do_update)
 
     def start_download(self):
+        self.cancel_requested = False # 重置取消标志
         """从全局下载列表获取任务，并在新线程中启动下载过程"""
         output_path = self.path_var.get()
-        self.cancel_requested = False # 重置取消标志
-
         if not output_path:
             messagebox.showwarning("警告", "请选择保存路径！"); return
 
@@ -275,21 +261,21 @@ class Sucoidownload:
         tasks_to_download = {}
         for item_iid in all_item_iids:
              item_values = self.download_tree.item(item_iid, 'values')
-             # 检查平台和状态列
-             if item_values and len(item_values) > 6 and item_values[3] in ('待下载', '下载出错', '准备下载', '完成(可能出错)'):
+             # 检查平台和状态列, 并且检查是否被选中
+             if item_values and len(item_values) > 6 and item_values[0] == '☑' and item_values[3] in ('待下载', '下载出错', '准备下载', '完成(可能出错)'):
                  platform = item_values[6] if item_values[6] else 'unknown'
-                 video_id = item_iid
+                 video_id = item_iid # item_iid 已经是 platform_videoid 格式
                  if platform not in tasks_to_download: tasks_to_download[platform] = []
                  tasks_to_download[platform].append(video_id)
-                 if item_values[3] != '待下载':
-                      try:
-                          if self.download_tree.exists(item_iid):
-                             self.download_tree.set(item_iid, column='status', value="准备下载")
-                             self.download_tree.set(item_iid, column='description', value="")
-                      except Exception as e: print(f"重置下载状态时出错 (iid={item_iid}): {e}")
+                 # 重置状态为准备下载
+                 try:
+                     if self.download_tree.exists(item_iid):
+                        self.download_tree.set(item_iid, column='status', value="准备下载")
+                        self.download_tree.set(item_id, column='description', value="")
+                 except Exception as e: print(f"重置下载状态时出错 (iid={item_iid}): {e}")
 
         if not tasks_to_download:
-             messagebox.showinfo("提示", "没有待下载或可重试的任务。"); return
+             messagebox.showinfo("提示", "没有选中待下载或可重试的任务。"); return # 修改提示
 
         self.disable_controls(True); self.status_label.config(text="状态: 开始准备下载..."); self.root.update_idletasks()
 
@@ -310,6 +296,7 @@ class Sucoidownload:
              # 使用 get 处理未找到的平台
              platform_module = platform_modules.get(platform)
              if platform_module:
+                 # 传递 self 给 download_videos (通过 wrapper)
                  thread = Thread(target=download_task_wrapper, args=(platform_module, ids, output_path))
                  thread.daemon = True; all_threads.append(thread); thread.start()
              else:
@@ -319,6 +306,8 @@ class Sucoidownload:
 
         def monitor_downloads():
             for t in all_threads: t.join()
+            # 在下载全部结束后，重置取消标志并启用控件
+            self.cancel_requested = False
             def show_final_status_wrapper():
                 final_message = f"全部任务完成！成功: {total_success}, 失败/出错: {total_error}"
                 self.status_label.config(text=f"状态: {final_message}")
@@ -339,7 +328,7 @@ class Sucoidownload:
              self._handle_youtube_search()
          elif current_tab_text == 'TikTok':
              # TODO: 实现 TikTok 的搜索逻辑（如果需要）或显示不支持
-             messagebox.showinfo("提示", "TikTok 平台暂不支持搜索功能。", parent=self.tiktok_tab)
+             messagebox.showinfo("提示", "TikTok 平台暂不支持搜索功能。") # 移除 parent，使其在主窗口显示
          else:
              messagebox.showinfo("提示", "当前平台不支持搜索功能。", parent=self.root)
 
@@ -440,7 +429,7 @@ class Sucoidownload:
                 source_values = source_tree.item(item_id, 'values')
                 if not source_values or len(source_values) < 1: skipped_count += 1; continue
                 video_title = source_values[0]
-                download_values = ('☐', video_title, '未知', '待下载', '', '', platform_name, '')
+                download_values = ('☐', video_title, '未知', '待下载', '', '', platform_name, '') # 默认未选中 '☐'
                 self.download_tree.insert('', tk.END, iid=download_iid, values=download_values) # 使用组合 ID
                 added_count += 1
             except Exception as e: print(f"添加视频到下载列表时出错 (iid={download_iid}): {e}"); skipped_count += 1
@@ -450,56 +439,97 @@ class Sucoidownload:
         self.status_label.config(text=f"状态: {status_message}")
 
     def open_settings_window(self):
-        """打开设置窗口。"""
-        settings_window = tk.Toplevel(self.root); settings_window.title("设置"); settings_window.transient(self.root); settings_window.grab_set()
-        settings_frame = ttk.Frame(settings_window, padding="10"); settings_frame.pack(expand=True, fill="both")
+        """打开设置窗口，并使其居中显示。""" # 更新 docstring
+        settings_window = tk.Toplevel(self.root)
+        settings_window.title("设置")
+        settings_window.transient(self.root) # 使其成为模式对话框
+        settings_window.grab_set() # 捕获事件
+
+        settings_frame = ttk.Frame(settings_window, padding="10")
+        settings_frame.pack(expand=True, fill="both")
+
         placeholder_api_key = "你的API key (用于YouTube)"; placeholder_path = "软件根目录download文件夹"; placeholder_color = 'grey'
         try: default_fg_color = settings_window.cget('fg')
         except tk.TclError: default_fg_color = 'black'
+
         api_key_var = tk.StringVar(); download_path_var = tk.StringVar()
+
         tk.Label(settings_frame, text="YouTube API Key:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
         api_key_entry = tk.Entry(settings_frame, textvariable=api_key_var, width=40); api_key_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=5, sticky=tk.EW)
+
         tk.Label(settings_frame, text="默认下载地址:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
         download_path_entry = tk.Entry(settings_frame, textvariable=download_path_var, width=40); download_path_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.EW)
         select_path_button = tk.Button(settings_frame, text="...", command=lambda: self.select_default_download_path(download_path_var, settings_window)); select_path_button.grid(row=1, column=2, padx=5, pady=5, sticky=tk.W)
+
         button_frame_settings = tk.Frame(settings_frame); button_frame_settings.grid(row=2, column=0, columnspan=3, pady=15)
         save_button = tk.Button(button_frame_settings, text="保存", command=lambda: self.save_settings(api_key_var.get(), download_path_var.get(), settings_window, placeholder_api_key, placeholder_path)); save_button.pack(side=tk.LEFT, padx=10)
         cancel_button = tk.Button(button_frame_settings, text="取消", command=settings_window.destroy); cancel_button.pack(side=tk.LEFT, padx=10)
+
         def setup_placeholder_logic(entry, var, placeholder_text):
             def on_focus_in(event):
                 if var.get() == placeholder_text: var.set(''); entry.config(fg=default_fg_color)
             def on_focus_out(event):
                 if not var.get(): var.set(placeholder_text); entry.config(fg=placeholder_color)
             entry.bind("<FocusIn>", on_focus_in); entry.bind("<FocusOut>", on_focus_out)
+
         current_api_key = self.config_manager.get_config('api_key'); current_path = self.config_manager.get_config('default_download_path')
         if current_api_key and current_api_key != 'YOUR_YOUTUBE_DATA_API_KEY_HERE': api_key_var.set(current_api_key); api_key_entry.config(fg=default_fg_color)
         else: api_key_var.set(placeholder_api_key); api_key_entry.config(fg=placeholder_color)
+
         if current_path: download_path_var.set(current_path); download_path_entry.config(fg=default_fg_color)
         else: download_path_var.set(placeholder_path); download_path_entry.config(fg=placeholder_color)
+
         setup_placeholder_logic(api_key_entry, api_key_var, placeholder_api_key); setup_placeholder_logic(download_path_entry, download_path_var, placeholder_path)
-        settings_frame.columnconfigure(1, weight=1); settings_window.update_idletasks()
-        width = settings_window.winfo_reqwidth() + 20; height = settings_window.winfo_reqheight() + 20
-        main_x, main_y = self.root.winfo_x(), self.root.winfo_y(); main_width, main_height = self.root.winfo_width(), self.root.winfo_height()
-        x = main_x + (main_width // 2) - (width // 2); y = main_y + (main_height // 2) - (height // 2)
 
-    def cancel_download(self):
-        """设置取消标志，尝试停止当前的下载任务。"""
-        if not self.cancel_requested:
-            self.cancel_requested = True
-            self.status_label.config(text="状态: 正在请求停止下载...")
-            # 注意：这不一定能立即停止当前正在下载的文件
-            # 依赖于下载循环或 yt-dlp 钩子检查此标志
-        else:
-            self.status_label.config(text="状态: 已请求停止下载")
+        settings_frame.columnconfigure(1, weight=1); settings_window.update_idletasks() # 确保窗口尺寸计算准确
 
+        # --- 居中显示 ---
+        self.center_window(settings_window) # 调用居中函数
+        # --- 居中结束 ---
 
-        settings_window.geometry(f'{width}x{height}+{x}+{y}'); settings_window.resizable(False, False)
+        settings_window.resizable(False, False)
+        settings_window.wait_window() # 等待窗口关闭
+
 
     def save_settings(self, api_key, download_path, window, placeholder_api, placeholder_pth):
         """保存设置到配置文件。"""
         updates = {}; final_api_key = api_key if api_key != placeholder_api else ''; final_download_path = os.path.abspath(download_path) if download_path and download_path != placeholder_pth else ''
         updates['api_key'] = final_api_key; updates['default_download_path'] = final_download_path; self.config_manager.update_multiple_configs(updates)
         messagebox.showinfo("设置", "设置已保存。", parent=window); self.api_key = final_api_key; current_main_path = self.path_var.get(); new_default_path = final_download_path if final_download_path else self.get_fallback_download_path()
+        fallback_path = self.get_fallback_download_path()
+        if final_download_path and current_main_path == fallback_path: self.path_var.set(new_default_path)
+        elif not final_download_path and current_main_path != fallback_path: self.path_var.set(fallback_path)
+        window.destroy()
+
+    def select_default_download_path(self, path_var, parent_window):
+        """为设置窗口中的下载路径选择文件夹。"""
+        folder = filedialog.askdirectory(parent=parent_window)
+        if folder: abs_path = os.path.abspath(folder); path_var.set(abs_path); parent_window.focus()
+
+    def get_fallback_download_path(self):
+         """获取回退的默认下载路径（脚本目录下的 download）。"""
+         script_dir = os.path.dirname(os.path.abspath(__file__))
+         return os.path.join(script_dir, "download")
+
+    def disable_controls(self, disable=True):
+         """禁用或启用界面上的主要交互控件。"""
+         state = tk.DISABLED if disable else tk.NORMAL
+         # 通用控件
+         try: self.settings_button.config(state=state)
+         except (AttributeError, tk.TclError): pass
+         try: self.path_button.config(state=state)
+         except (AttributeError, tk.TclError): pass
+         try: self.remove_button.config(state=state) # 添加移除按钮
+         except (AttributeError, tk.TclError): pass
+         try: self.stop_button.config(state=state) # 添加停止按钮
+         except (AttributeError, tk.TclError): pass
+         # 尝试禁用/启用 YouTube 标签页内的控件
+         youtube_buttons = ['youtube_search_button', 'youtube_add_button', 'youtube_download_button']
+         for btn_attr in youtube_buttons:
+              try: getattr(self, btn_attr).config(state=state)
+              except (AttributeError, tk.TclError): pass # 忽略按钮不存在或未挂载的情况
+         # TODO: 禁用/启用 TikTok 标签页内的控件 (需要 tiktok.py 支持)
+         # 需要 tiktok.py 的 create_tab 返回按钮引用或提供 enable/disable 方法
 
     def _toggle_download_selection(self, event):
         """处理下载列表 Treeview 的点击事件，切换第一列的选择状态。"""
@@ -546,49 +576,38 @@ class Sucoidownload:
                     print(f"移除行 {item_iid} 时出错。")
             self.status_label.config(text=f"状态: 移除了 {len(items_to_remove)} 个下载项。")
 
+    def cancel_download(self):
+        """设置取消标志，尝试停止当前的下载任务。"""
+        if not self.cancel_requested:
+            self.cancel_requested = True
+            self.status_label.config(text="状态: 正在请求停止下载...")
+            # 注意：这不一定能立即停止当前正在下载的文件
+            # 依赖于下载循环或 yt-dlp 钩子检查此标志
+        else:
+            self.status_label.config(text="状态: 已请求停止下载")
 
-            return # 只处理第一列的点击
+    def center_window(self, window):
+        """将给定窗口在其父窗口或屏幕上居中。"""
+        window.update_idletasks() # 确保窗口尺寸已计算
+        width = window.winfo_width()
+        height = window.winfo_height()
+        # 尝试获取父窗口 (main_app.root) 的几何信息
+        try:
+             parent = self.root
+             parent_x = parent.winfo_x()
+             parent_y = parent.winfo_y()
+             parent_width = parent.winfo_width()
+             parent_height = parent.winfo_height()
+             x = parent_x + (parent_width // 2) - (width // 2)
+             y = parent_y + (parent_height // 2) - (height // 2)
+        except Exception:
+             # 如果获取父窗口信息失败，则在屏幕上居中
+             screen_width = window.winfo_screenwidth()
+             screen_height = window.winfo_screenheight()
+             x = (screen_width // 2) - (width // 2)
+             y = (screen_height // 2) - (height // 2)
 
-        item_iid = self.download_tree.identify_row(event.y)
-        if not item_iid:
-            return # 未点击到有效行
-
-        # 获取当前状态并切换
-        current_value = self.download_tree.set(item_iid, column='select')
-        new_value = '☑' if current_value == '☐' else '☐'
-        self.download_tree.set(item_iid, column='select', value=new_value)
-
-
-        fallback_path = self.get_fallback_download_path()
-        if final_download_path and current_main_path == fallback_path: self.path_var.set(new_default_path)
-        elif not final_download_path and current_main_path != fallback_path: self.path_var.set(fallback_path)
-        window.destroy()
-
-    def select_default_download_path(self, path_var, parent_window):
-        """为设置窗口中的下载路径选择文件夹。"""
-        folder = filedialog.askdirectory(parent=parent_window)
-        if folder: abs_path = os.path.abspath(folder); path_var.set(abs_path); parent_window.focus()
-
-    def get_fallback_download_path(self):
-         """获取回退的默认下载路径（脚本目录下的 download）。"""
-         script_dir = os.path.dirname(os.path.abspath(__file__))
-         return os.path.join(script_dir, "download")
-
-    def disable_controls(self, disable=True):
-         """禁用或启用界面上的主要交互控件。"""
-         state = tk.DISABLED if disable else tk.NORMAL
-         # 通用控件
-         try: self.settings_button.config(state=state)
-         except AttributeError: pass
-         try: self.path_button.config(state=state)
-         except AttributeError: pass
-         # 尝试禁用/启用 YouTube 标签页内的控件
-         youtube_buttons = ['youtube_search_button', 'youtube_add_button', 'youtube_download_button']
-         for btn_attr in youtube_buttons:
-              try: getattr(self, btn_attr).config(state=state)
-              except AttributeError: pass # 忽略按钮不存在或未挂载的情况
-         # TODO: 禁用/启用 TikTok 标签页内的控件 (需要 tiktok.py 支持)
-         # 需要 tiktok.py 的 create_tab 返回按钮引用或提供 enable/disable 方法
+        window.geometry(f'{width}x{height}+{x}+{y}')
 
 
 if __name__ == "__main__":
