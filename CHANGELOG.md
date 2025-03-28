@@ -29,6 +29,13 @@
 
 ### 更改 (Changed)
 
+*   **前端重构 (GUI Rework)**:
+    *   将原 URL 输入/结果文本框替换为两个 `ttk.Treeview` 表格，分别用于显示“搜索结果”和“下载列表”。
+    *   实现 `add_selected_to_download` 方法，允许将搜索结果添加到下载列表。
+    *   修改下载逻辑 (`start_download`, `download_videos_from_tree`, `progress_hook`) 以适配新的下载列表表格，实现状态更新。
+*   **布局调整 (Layout Adjustments)**:
+    *   多次调整按钮（搜索、添加、下载、设置、选择路径）和路径输入框的位置，以优化操作流程和视觉效果。
+    *   为下载列表表格的列添加 `minwidth` 属性，改善小窗口下的表头显示。
 *   重构 `sucoidownload.py` 代码结构，将 `search_videos` 移入 `Sucoidownload` 类。
 *   优化 `download_videos` 方法，改为逐个下载 URL，并增加成功/失败计数和总结。
 *   优化 `progress_hook`，在状态栏显示更详细的下载信息（文件名和百分比）。
