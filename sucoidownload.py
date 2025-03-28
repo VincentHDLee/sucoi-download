@@ -45,15 +45,27 @@ class Sucoidownload:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=0) # Top frame
         self.root.rowconfigure(1, weight=1) # Notebook
-        self.root.rowconfigure(2, weight=1) # Download frame
-        self.root.rowconfigure(3, weight=0) # Bottom frame
+        self.root.rowconfigure(2, weight=1) # Download frame (占据剩余垂直空间)
 
-        # --- 顶部区域 ---
+        # --- 顶部区域 (包含状态、路径选择、设置) ---
         top_frame = tk.Frame(self.root)
-        top_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 0))
-        top_frame.columnconfigure(0, weight=1)
-        self.status_label.grid(row=0, column=0, sticky=tk.W)
-        self.settings_button.grid(row=0, column=1, sticky=tk.E)
+        top_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+        top_frame.columnconfigure(0, weight=0) # Status label (不拉伸)
+        top_frame.columnconfigure(1, weight=0) # Path button (不拉伸)
+        top_frame.columnconfigure(2, weight=1) # Path entry (拉伸占据剩余空间)
+        top_frame.columnconfigure(3, weight=0) # Settings button (不拉伸)
+
+        # 状态标签
+        self.status_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 10)) # 右侧加间距
+
+        # 路径选择按钮 - 注意：这些控件在 __init__ 的 37-42 行已创建
+        self.path_button.grid(row=0, column=1, sticky=tk.W, padx=(0, 5)) # 右侧加间距
+
+        # 路径输入框
+        self.path_entry.grid(row=0, column=2, sticky=tk.EW) # 水平拉伸
+
+        # 设置按钮
+        self.settings_button.grid(row=0, column=3, sticky=tk.E, padx=(10, 0)) # 左侧加间距
 
         # --- 创建 Notebook (中部区域) ---
         self.notebook = ttk.Notebook(self.root)
@@ -80,12 +92,7 @@ class Sucoidownload:
         # --- 下载列表布局 (全局) ---
         self.download_frame.grid(row=2, column=0, sticky='nsew', padx=10, pady=5)
 
-        # --- 底部区域 (路径选择) ---
-        bottom_frame = tk.Frame(self.root)
-        bottom_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(5, 10))
-        bottom_frame.columnconfigure(1, weight=1)
-        self.path_button.grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
-        self.path_entry.grid(row=0, column=1, sticky=tk.EW)
+        # --- 底部区域 (路径选择) --- 已移动到顶部区域 ---
 
         # --- 启动主循环 ---
         self.root.mainloop()
