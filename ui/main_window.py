@@ -66,7 +66,9 @@ class MainWindow:
         self.controls_frame = tk.Frame(self.download_frame)
         self.progress_bar = ttk.Progressbar(self.controls_frame, orient=tk.HORIZONTAL, length=100, mode='determinate')
         self.remove_button = tk.Button(self.controls_frame, text="移除选中项", command=self.remove_selected_downloads)
-        self.stop_button = tk.Button(self.controls_frame, text="停止下载", command=self.app.request_cancel) # 通知控制器取消
+        self.download_selected_button = tk.Button(self.controls_frame, text="下载选中项", command=self.app.start_selected_downloads) # 新增按钮
+        # 修改：为停止按钮添加淡红色背景
+        self.stop_button = tk.Button(self.controls_frame, text="停止下载", command=self.app.request_cancel, background='#f8d7da') # 通知控制器取消
 
     def _setup_layout(self):
         """配置主窗口控件的布局。"""
@@ -103,11 +105,13 @@ class MainWindow:
         # --- 下载列表下方控件布局 ---
         self.controls_frame.grid(row=1, column=0, columnspan=2, sticky=tk.EW, padx=5, pady=5)
         self.controls_frame.columnconfigure(0, weight=1) # Progress bar stretches
-        self.controls_frame.columnconfigure(1, weight=0) # Remove button doesn't stretch
-        self.controls_frame.columnconfigure(2, weight=0) # Stop button doesn't stretch
+        self.controls_frame.columnconfigure(1, weight=0) # Remove button
+        self.controls_frame.columnconfigure(2, weight=0) # Download Selected button
+        self.controls_frame.columnconfigure(3, weight=0) # Stop button
         self.progress_bar.grid(row=0, column=0, sticky=tk.EW, padx=(0, 10))
         self.remove_button.grid(row=0, column=1, sticky=tk.E, padx=(0, 5))
-        self.stop_button.grid(row=0, column=2, sticky=tk.E, padx=(5, 0))
+        self.download_selected_button.grid(row=0, column=2, sticky=tk.E, padx=(0, 5)) # 添加新按钮布局
+        self.stop_button.grid(row=0, column=3, sticky=tk.E, padx=(5, 0)) # 调整停止按钮列
 
     # --- Public Methods for Controller to Use ---
 
@@ -163,8 +167,10 @@ class MainWindow:
     def disable_controls(self, disable=True):
         """禁用或启用界面上的主要交互控件。"""
         state = tk.DISABLED if disable else tk.NORMAL
+        # 修改：移除 self.remove_button，不再由通用逻辑禁用/启用
         widgets_to_toggle = [
-            self.settings_button, self.path_button, self.remove_button, self.stop_button
+            self.settings_button, self.path_button, self.download_selected_button, self.stop_button
+            # 注意：添加了 self.download_selected_button 到通用禁用列表
         ]
         # 还需要禁用/启用各个 Tab 内部的按钮，这需要在 add_platform_tab 后处理
         # 或者让 Tab UI 模块提供 enable/disable 方法

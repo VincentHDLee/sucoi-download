@@ -90,7 +90,8 @@ def download_tiktok_urls(url_text_widget, app):
     if items_to_download:
          print(f"请求立即下载 {len(items_to_download)} 个 TikTok 任务...")
          # 调用主程序的方法来处理这些任务的异步执行
-         app.start_immediate_downloads(items_to_download)
+         # 修复：添加 platform 参数
+         app.start_immediate_downloads(items_to_download, platform=PLATFORM_NAME)
          app.update_status(f"已提交 {len(items_to_download)} 个 TikTok 任务进行立即下载。")
          # 可以考虑清空输入框？ url_text_widget.delete("1.0", tk.END)
     else:
