@@ -62,13 +62,15 @@ class MainWindow:
         self.download_scrollbar = ttk.Scrollbar(self.download_frame, orient=tk.VERTICAL, command=self.download_tree.yview)
         self.download_tree.configure(yscrollcommand=self.download_scrollbar.set)
 
-        # --- 下载列表下方的控件 ---
-        self.controls_frame = tk.Frame(self.download_frame)
-        self.progress_bar = ttk.Progressbar(self.controls_frame, orient=tk.HORIZONTAL, length=100, mode='determinate')
+        # --- 下载列表下方的控件 (移除进度条, 父容器改为 self.root) ---
+        self.controls_frame = tk.Frame(self.root) # <--- 移除背景色测试
         self.remove_button = tk.Button(self.controls_frame, text="移除选中项", command=self.remove_selected_downloads)
         self.download_selected_button = tk.Button(self.controls_frame, text="下载选中项", command=self.app.start_selected_downloads) # 新增按钮
         # 修改：为停止按钮添加淡红色背景
         self.stop_button = tk.Button(self.controls_frame, text="停止下载", command=self.app.request_cancel, background='#f8d7da') # 通知控制器取消
+
+        # --- 单独创建主进度条 (父容器改为 self.root) ---
+        self.progress_bar = ttk.Progressbar(self.root, orient=tk.HORIZONTAL, length=100, mode='determinate')
 
     def _setup_layout(self):
         """配置主窗口控件的布局。"""
@@ -77,7 +79,9 @@ class MainWindow:
         self.root.rowconfigure(0, weight=0) # top_frame
         self.root.rowconfigure(1, weight=0) # path_frame
         self.root.rowconfigure(2, weight=1) # notebook
-        self.root.rowconfigure(3, weight=1) # download_frame
+        self.root.rowconfigure(3, weight=2) # download_frame (给它更多权重)
+        self.root.rowconfigure(4, weight=0) # progress_bar row
+        self.root.rowconfigure(5, weight=0) # controls_frame row (原下载列表下方控件)
 
         # --- 顶部区域布局 ---
         self.top_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 0))
@@ -102,16 +106,17 @@ class MainWindow:
         self.download_tree.grid(row=0, column=0, sticky='nsew')
         self.download_scrollbar.grid(row=0, column=1, sticky='ns')
 
-        # --- 下载列表下方控件布局 ---
-        self.controls_frame.grid(row=1, column=0, columnspan=2, sticky=tk.EW, padx=5, pady=5)
-        self.controls_frame.columnconfigure(0, weight=1) # Progress bar stretches
-        self.controls_frame.columnconfigure(1, weight=0) # Remove button
-        self.controls_frame.columnconfigure(2, weight=0) # Download Selected button
-        self.controls_frame.columnconfigure(3, weight=0) # Stop button
-        self.progress_bar.grid(row=0, column=0, sticky=tk.EW, padx=(0, 10))
-        self.remove_button.grid(row=0, column=1, sticky=tk.E, padx=(0, 5))
-        self.download_selected_button.grid(row=0, column=2, sticky=tk.E, padx=(0, 5)) # 添加新按钮布局
-        self.stop_button.grid(row=0, column=3, sticky=tk.E, padx=(5, 0)) # 调整停止按钮列
+        # --- 主进度条布局 (放在下载列表下方) ---
+        self.progress_bar.grid(row=4, column=0, sticky=tk.EW, padx=10, pady=(5, 0))
+
+        # --- 原下载列表下方控件布局 (现在放在主进度条下方) ---
+        # 注意: 父容器已改为 self.root，所以 grid 在主窗口上
+        self.controls_frame.grid(row=5, column=0, sticky=tk.EW, padx=10, pady=(0, 5))
+        # 改为使用 pack 布局 controls_frame 内部的按钮，从右到左排列
+        # 注意 pack 的顺序与 grid 不同，先 pack 的控件离指定边更近
+        self.stop_button.pack(in_=self.controls_frame, side=tk.RIGHT, padx=(5, 0))
+        self.download_selected_button.pack(in_=self.controls_frame, side=tk.RIGHT, padx=(5, 0))
+        self.remove_button.pack(in_=self.controls_frame, side=tk.RIGHT, padx=(0, 0)) # 最右边的按钮（逻辑上是 remove）
 
     # --- Public Methods for Controller to Use ---
 
@@ -445,7 +450,8 @@ if __name__ == '__main__':
         # 模拟添加一个 TikTok 标签页
         def load_tabs(self):
             try:
-                from ui import tiktok_tab # 尝试导入
+                # 假设 tiktok_tab.py 在同一目录下或 python path 中
+                import tiktok_tab # 直接导入，需要确保路径正确
                 # 需要模拟 add_platform_tab 方法
                 if hasattr(self, 'view'): self.view.add_platform_tab("TikTok", tiktok_tab.create_tab)
             except ImportError as e:

@@ -140,7 +140,7 @@ def download_item(app, item_iid, output_path):
     }
 
     # 调用 DownloadService 处理下载，传递 app 的进度更新方法作为回调
-    result = app.download_service.download_item(item_info, app.update_download_progress)
+    result = app.download_service.download_item(item_info, app.update_download_progress, app.is_cancel_requested)
 
     # download_item 的返回值主要用于记录最终状态，详细进度通过回调处理
     logger.info("DownloadService 对 [%s] 的最终结果: %s", item_iid, result.get('status', '未知'))

@@ -5,6 +5,26 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本遵循[语义化版本](https://semver.org/lang/zh-CN/)规范。
 
+## [0.2.3] - 2025-04-07
+
+### 新增 (Added)
+
+*   **下载重试机制**: `DownloadService` 现在会在下载失败时自动进行最多两次重试 (分别延迟 3 秒和 5 秒)，以提高对临时网络问题的容错性。
+*   **重试状态显示**: 下载列表中的任务在重试等待期间会显示 `[重试中...]` 状态。
+
+### 更改 (Changed)
+
+*   优化了下载列表“状态”列的显示，使用更通用的 ASCII 符号 (`[...]`, `%`, `[OK]`, `[ERR]`, `[CAN]`) 替代 Unicode 图标，以解决潜在的字体渲染问题。
+*   优化了“剩余时间”和“传输速度”列的显示，移除了可能导致渲染错误的 ANSI 转义码。
+
+### 修复 (Fixed)
+
+*   修复了 `DownloadService.download_item` 方法在下载完成后，由于返回值处理逻辑错误可能返回 `None` 的问题。此问题导致后续调用者 (如 `_run_single_download_task`) 出现 `AttributeError: 'NoneType' object has no attribute 'get'` 错误。
+*   改进了 `DownloadService` 中处理下载错误和取消状态的逻辑，确保在各种情况下都能返回包含正确状态 (`finished`, `error`, `cancelled`) 的字典。
+
+---
+
+
 ## [0.2.2] - 2025-04-07
 
 ### 新增 (Added)

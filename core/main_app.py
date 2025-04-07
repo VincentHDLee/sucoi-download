@@ -6,6 +6,7 @@ import importlib # For dynamic module loading
 from threading import Thread
 import time # For monitor thread sleep
 import concurrent.futures
+import re # 用于清除 ANSI 转义码
 
 # Import necessary components from the new structure
 # Adjust imports based on running from project root or core directory
@@ -56,6 +57,7 @@ class SucoiAppController:
         print(f"信息: 初始化下载线程池，最大并发数: {self.max_workers}")
         self.download_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers)
         self.active_futures = {} # 用于存储 Future 对象，键为 item_id
+        self.active_task_progress = {} # 用于存储活动任务进度 {item_id: percentage}
 
 
         # --- Initialize UI ---
@@ -175,7 +177,7 @@ class SucoiAppController:
         updates['max_concurrent_downloads'] = final_concurrency # 添加并发数到更新字典
 
         # Perform the save
-        save_successful = self.config_manager.update_multiple_configs(updates)
+        save_successful, error_msg = self.config_manager.update_multiple_configs(updates) # 修改：接收返回元组
 
         if save_successful:
             # 添加：更新当前的 ThreadPoolExecutor (如果并发数改变)
@@ -218,7 +220,7 @@ class SucoiAppController:
             window.destroy()
         else:
             # 修改：显示更详细的错误信息
-            error_detail = f"保存设置失败！\n\n原因: {save_successful[1]}" if isinstance(save_successful, tuple) and len(save_successful) > 1 and save_successful[1] else "保存设置失败！请检查日志。"
+            error_detail = f"保存设置失败！\n\n原因: {error_msg}" if error_msg else "保存设置失败！请检查日志。"
             self.view.show_message("错误", error_detail, msg_type='error', parent=window)
 
 
@@ -328,6 +330,9 @@ class SucoiAppController:
             print("警告: 收到缺少 id 的进度回调数据:", progress_data)
             return
 
+        # 编译一次正则表达式以提高效率
+        ansi_escape_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
         def do_update():
             if not self.root.winfo_exists(): return
             download_tree = self.view.get_download_treeview()
@@ -340,53 +345,105 @@ class SucoiAppController:
                 status = progress_data.get('status')
                 values_to_set = {}
                 percent_value = None
+                status_text = "" # 用于组合符号和文本
 
                 if status == 'preparing':
-                    values_to_set = {'status': "准备下载", 'description': progress_data.get('description', '')}
-                    # Reset progress bar only if this is the only active non-finished/error task?
-                    # For now, just set to 0 if it's preparing.
+                    status_text = "[...]" # 使用 ASCII 符号
+                    values_to_set = {'status': status_text, 'description': ''} # 清空旧描述
                     percent_value = 0.0
                 elif status == 'downloading':
                     p_str = progress_data.get('percent', '0%')
-                    try: percent_value = float(p_str.strip('%'))
-                    except: percent_value = 0.0
+                    try:
+                        # 清除 ANSI 转义码
+                        cleaned_p_str = ansi_escape_pattern.sub('', p_str)
+                        percent_value = float(cleaned_p_str.strip('%'))
+                        status_text = f"{cleaned_p_str}" # 只显示清理后的百分比
+                    except ValueError:
+                         percent_value = 0.0
+                         status_text = "0%" # 如果转换失败，显示0%
+                    # 清理 ETA 和 Speed 字符串中的 ANSI 码
+                    eta_str = progress_data.get('eta', 'N/A')
+                    speed_str = progress_data.get('speed', 'N/A')
+                    cleaned_eta_str = ansi_escape_pattern.sub('', eta_str)
+                    cleaned_speed_str = ansi_escape_pattern.sub('', speed_str)
                     values_to_set = {
                         'filename': progress_data.get('filename', download_tree.set(item_id, 'filename'))[:50], # Limit length
                         'size': progress_data.get('size', '未知'),
-                        'status': f"下载中 {p_str}",
-                        'eta': progress_data.get('eta', 'N/A'),
-                        'speed': progress_data.get('speed', 'N/A'),
-                        'description': ''
+                        'status': status_text,
+                        'eta': cleaned_eta_str, # 使用清理后的 ETA
+                        'speed': cleaned_speed_str, # 使用清理后的 Speed
+                        'description': '' # 清空描述，避免干扰
                     }
                 elif status == 'finished':
+                    status_text = "[OK]" # 使用 ASCII 符号
                     values_to_set = {
                         'filename': progress_data.get('filename', download_tree.set(item_id, 'filename'))[:50],
                         'size': progress_data.get('size', '未知'),
-                        'status': "下载完成", 'eta': '0s', 'speed': '',
-                        'description': progress_data.get('description', '完成')
+                        'status': status_text, 'eta': '0s', 'speed': '',
+                        'description': progress_data.get('description', '') # 保留可能的文件路径等
                     }
                     percent_value = 100.0
                 elif status == 'error':
-                    values_to_set = {'status': "下载出错", 'description': str(progress_data.get('description', '未知错误'))[:100]} # Limit desc length
-                    percent_value = 0.0 # Reset progress on error?
+                    status_text = "[ERR]" # 使用 ASCII 符号
+                    values_to_set = {'status': status_text, 'description': str(progress_data.get('description', '未知错误'))[:100]} # Limit desc length
+                    percent_value = 0.0 # Reset progress on error
                 elif status == 'cancelled': # 处理新增的取消状态
-                     values_to_set = {'status': "已取消", 'description': progress_data.get('description', "用户取消")}
-                     # 保留之前的进度或置零？当前置零
-                     percent_value = 0.0
+                     status_text = "[CAN]" # 使用 ASCII 符号
+                     values_to_set = {'status': status_text, 'description': progress_data.get('description', "用户取消")}
+                     percent_value = 0.0 # Reset progress on cancel
+                elif status == 'retrying': # 新增处理重试状态
+                     status_text = "[重试中...]"
+                     # description 可能包含重试信息，保留它
+                     values_to_set = {'status': status_text, 'description': progress_data.get('description', '')}
+                     # 重试时不改变进度百分比，percent_value 设为 None
+                     percent_value = None
 
                 # Update Treeview
                 for col, value in values_to_set.items():
                      if download_tree.exists(item_id):
                           download_tree.set(item_id, column=col, value=value)
 
-                # Update Progress Bar (Simplistic: shows progress of the item being reported)
-                # TODO: Implement overall progress calculation
-                if percent_value is not None:
-                     progress_bar['value'] = percent_value
+                # --- 更新总体进度条 (修正逻辑) ---
+                should_update_bar = False
+                if status == 'finished' and percent_value == 100.0:
+                    # 任务完成：先记录 100%，计算平均值，更新进度条，然后移除
+                    self.active_task_progress[item_id] = 100.0
+                    should_update_bar = True
+                elif status in ['downloading', 'preparing'] and percent_value is not None:
+                    # 下载中或准备中：更新进度
+                    self.active_task_progress[item_id] = percent_value
+                    should_update_bar = True
+                elif status in ['error', 'cancelled']:
+                    # 出错或取消：如果存在则移除，并准备更新进度条（通常会归零）
+                    if item_id in self.active_task_progress:
+                        del self.active_task_progress[item_id]
+                        should_update_bar = True
+                # 注意：'retrying' 状态不直接更新进度条或 active_task_progress
+
+                # 如果需要更新进度条
+                if should_update_bar:
+                    if self.active_task_progress:
+                        # 计算当前所有活动任务（包括刚完成但尚未移除的）的平均进度
+                        total_progress = sum(self.active_task_progress.values())
+                        num_active_tasks = len(self.active_task_progress)
+                        overall_percentage = total_progress / num_active_tasks if num_active_tasks > 0 else 0
+                        progress_bar['value'] = overall_percentage
+                        # print(f"Debug: 更新总体进度 - {overall_percentage:.2f}% ({num_active_tasks} tasks)") # 调试日志
+                    else:
+                         # 如果字典变为空（最后一个任务完成/出错/取消）
+                         progress_bar['value'] = 0 # 归零，_final_ui_update 会设置最终状态
+
+                # 如果任务刚刚完成，在更新完进度条 *之后* 再移除
+                if status == 'finished':
+                    if item_id in self.active_task_progress:
+                        # 确保是刚才标记为 100% 的那个任务
+                        if self.active_task_progress[item_id] == 100.0:
+                             del self.active_task_progress[item_id]
+                             # print(f"Debug: 移除了已完成任务 {item_id} 的进度记录")
 
             except Exception as e:
                 # Avoid crashing the app due to UI update errors
-                print(f"更新 Treeview 时出错 (iid={item_id}, data={progress_data}): {e}")
+                print(f"更新 Treeview 或进度时出错 (iid={item_id}, data={progress_data}): {e}")
 
         self.root.after(0, do_update)
 
@@ -513,9 +570,10 @@ class SucoiAppController:
         # Set initial progress and status
         actual_task_count = len(valid_items_to_download) # Use the count of valid items
         self.update_status(f"开始准备立即下载 {actual_task_count} 个任务...")
+        self.active_task_progress = {} # 清空任务进度记录
         try:
             progress_bar = self.view.get_progress_bar()
-            if progress_bar: progress_bar['value'] = 5 # Comfort progress
+            if progress_bar: progress_bar['value'] = 0 # 重置进度条
         except Exception as e: print(f"设置初始进度条时出错: {e}")
 
         # 修改：使用 ThreadPoolExecutor 提交任务
@@ -527,6 +585,11 @@ class SucoiAppController:
             try:
                 future = self.download_executor.submit(self._run_single_download_task, item_info)
                 self.active_futures[item_info['id']] = future # 使用 item_id 作为键存储 Future
+                # 添加回调以立即检查 Future 结果
+                item_id_for_callback = item_info['id'] # 捕获当前 item_id
+                future.add_done_callback(
+                    lambda f, captured_id=item_id_for_callback: print(f"信息: Future 完成回调 (立即下载) for {captured_id}. 结果: {f.result() if not f.exception() else f.exception()}")
+                )
                 submitted_count += 1
             except Exception as e:
                  item_id_for_error = item_info.get('id', '未知ID')
@@ -565,7 +628,8 @@ class SucoiAppController:
             try:
                  values = download_tree.item(item_iid, 'values')
                  # Checkbox (col 0), Status (col 3)
-                 if values and len(values) > 3 and values[0] == '☑' and values[3] in ('待下载', '下载出错', '准备下载'):
+                 # 允许重试 '[ERR]' 和 '[CAN]' 状态的任务
+                 if values and len(values) > 3 and values[0] == '☑' and values[3] in ('待下载', '下载出错', '准备下载', '[ERR]', '[CAN]'):
                       selected_iids.append(item_iid)
                       items_to_reset.append(item_iid)
             except Exception as e:
@@ -579,7 +643,7 @@ class SucoiAppController:
         for iid in items_to_reset:
             try:
                  if download_tree.exists(iid):
-                      download_tree.set(iid, column='status', value="准备下载")
+                      download_tree.set(iid, column='status', value="[...] ") # 使用准备中符号
                       # Clear description only if it's not the URL
                       # Assuming URL is now in col 7
                       current_desc = "" # Default to empty
@@ -601,9 +665,10 @@ class SucoiAppController:
         # 修改：改进状态提示，并设置进度条初始值
         actual_task_count = len(selected_iids) # 实际将要启动的任务数
         self.update_status(f"开始准备下载 {actual_task_count} 个选中任务...")
+        self.active_task_progress = {} # 清空任务进度记录
         try:
             progress_bar = self.view.get_progress_bar()
-            if progress_bar: progress_bar['value'] = 5 # 安慰性进度
+            if progress_bar: progress_bar['value'] = 0 # 重置进度条
         except Exception as e: print(f"设置初始进度条时出错: {e}")
 
         # 修改：使用 ThreadPoolExecutor 提交任务
@@ -626,6 +691,11 @@ class SucoiAppController:
                            }
                            future = self.download_executor.submit(self._run_single_download_task, item_info)
                            self.active_futures[item_iid] = future # 使用 item_id 作为键存储 Future
+                           # 添加回调以立即检查 Future 结果
+                           item_id_for_callback = item_iid # 捕获当前 item_id
+                           future.add_done_callback(
+                               lambda f, captured_id=item_id_for_callback: print(f"信息: Future 完成回调 (选中下载) for {captured_id}. 结果: {f.result() if not f.exception() else f.exception()}")
+                           )
                            submitted_count += 1
                       else:
                            print(f"警告: 无法从列表获取有效的URL for iid {item_iid} (value: {url})")
@@ -654,27 +724,51 @@ class SucoiAppController:
 
 
     def _run_single_download_task(self, item_info):
-        """在后台线程中调用 DownloadService 下载单个项目。"""
-        if not self.download_service:
-            # logger.error("DownloadService 未初始化，无法下载 %s", item_info.get('id')) # Use print if logger not set up
-            print(f"错误: DownloadService 未初始化，无法下载 {item_info.get('id')}")
-            self.update_download_progress({'id': item_info.get('id'), 'status': 'error', 'description': '服务未初始化'})
-            return
-
+        """在后台线程中调用 DownloadService 下载单个项目，并确保返回字典。"""
         item_id = item_info.get('id')
-        # logger.info("下载线程启动 for: %s", item_id)
+        # 默认错误结果，防止意外情况导致返回 None
+        result = {'id': item_id, 'status': 'error', 'error_message': '未知任务执行错误'}
+
+        if not self.download_service:
+            print(f"错误: DownloadService 未初始化，无法下载 {item_id}")
+            result = {'id': item_id, 'status': 'error', 'error_message': '核心下载服务未初始化'}
+            self.update_download_progress(result) # 更新UI状态
+            print(f"信息: _run_single_download_task 即将返回错误结果 for {item_id}: {result}")
+            return result
+
         print(f"信息: 下载线程启动 for: {item_id}")
         try:
-            # 直接调用 DownloadService，它内部处理回调
-            # 修改：传递 self.is_cancel_requested 作为取消检查函数
-            result = self.download_service.download_item(item_info, self.update_download_progress, self.is_cancel_requested)
-            # logger.info("下载线程结束 for %s. 最终状态: %s", item_id, result.get('status'))
-            print(f"信息: 下载线程结束 for {item_id}. 最终状态: {result.get('status')}")
+            # 调用 DownloadService 进行下载
+            download_result = self.download_service.download_item(item_info, self.update_download_progress, self.is_cancel_requested)
+            # 关键日志：记录 download_item 的实际返回值
+            print(f"信息: download_item 直接返回结果 for {item_id}: {download_result} (类型: {type(download_result)})")
+
+            # 健壮性检查：如果 download_item 返回 None 或非字典，记录警告并使用错误字典
+            if download_result is None:
+                print(f"警告: download_item for {item_id} 返回了 None！")
+                result = {'id': item_id, 'status': 'error', 'error_message': '下载服务未按预期返回结果 (None)'}
+            elif not isinstance(download_result, dict):
+                 print(f"警告: download_item for {item_id} 返回了非字典类型: {type(download_result)}！")
+                 result = {'id': item_id, 'status': 'error', 'error_message': f'下载服务返回类型错误 ({type(download_result)})'}
+            else:
+                 result = download_result # 使用 download_item 的有效返回结果
+
         except Exception as e:
-            # logger.error("运行单任务下载时发生意外错误 for %s: %s", item_id, e, exc_info=True)
-            print(f"错误: 运行单任务下载时发生意外错误 for {item_id}: {e}")
-            # 尝试最后更新一次状态
-            self.update_download_progress({'id': item_id, 'status': 'error', 'description': f'线程错误: {e}'})
+            print(f"错误: _run_single_download_task 捕获到异常 for {item_id}: {e}")
+            # 记录详细 traceback (可选，根据需要取消注释)
+            # import traceback
+            # print(traceback.format_exc())
+            error_desc = f'任务执行异常: {e}'
+            result = {'id': item_id, 'status': 'error', 'error_message': error_desc}
+            # 尝试更新UI状态
+            try:
+                self.update_download_progress({'id': item_id, 'status': 'error', 'description': error_desc})
+            except Exception as ui_update_err:
+                 print(f"错误: 在处理下载异常时更新UI失败 for {item_id}: {ui_update_err}")
+
+        # 最终日志：记录此函数最终将返回的值
+        print(f"信息: _run_single_download_task 即将返回最终结果 for {item_id}: {result}")
+        return result
 
     def _monitor_download_futures(self):
         """Waits for active download futures to complete and updates UI."""
@@ -683,106 +777,120 @@ class SucoiAppController:
             return
 
         print(f"监控：开始监控 {len(self.active_futures)} 个 Future 对象...") # 添加调试信息
+        processed_ids = set(self.active_futures.keys()) # 修正：在循环开始前获取 ID 集合
+        all_futures = list(self.active_futures.values()) # 获取 Future 列表
+
         # 使用 concurrent.futures.wait 等待所有 Future 完成
-        # future_list = list(self.active_futures.values())
-        # concurrent.futures.wait(future_list)
-        # 或者，更简单地循环检查直到所有 future 都 done
-        all_futures_items = list(self.active_futures.items()) # 获取 (item_id, future) 对
-        active_count = len(all_futures_items)
+        # done, not_done = concurrent.futures.wait(all_futures, return_when=concurrent.futures.ALL_COMPLETED)
+        # 或者，更简单地循环检查直到所有 future 都 done (处理取消时可能更好)
+        active_count = len(all_futures)
         while active_count > 0:
-            # 检查完成的 futures
-            completed_count = 0
-            for item_id, future in all_futures_items:
-                 if future.done():
-                      completed_count += 1
-            active_count = len(all_futures_items) - completed_count
-            # print(f"监控：剩余 {active_count} 个任务...") # 避免过多日志
+            completed_count = sum(1 for f in all_futures if f.done())
+            active_count = len(all_futures) - completed_count
             time.sleep(0.5)
-            # 检查是否请求了取消
             if self.is_cancel_requested():
                 print("监控：检测到取消请求，等待任务自行结束或出错...")
-                # 注意：ThreadPoolExecutor 没有直接的方法强制取消正在运行的任务
-                # 依赖 DownloadService 内部的检查来尽早结束
-                pass # 继续等待线程结束
+                # 不再强制中断，让 Service 内部处理
+                pass
 
-        # 所有 Futures 完成 (或被视为完成，例如取消后)
         print("监控：所有 Future 对象已完成。") # 添加调试信息
         was_cancelled = self.is_cancel_requested() # 检查最终状态
 
-        # --- 执行收尾 UI 更新 ---
-        def final_ui_update():
-            if not self.root.winfo_exists():
-                 print("监控：UI 更新时窗口已不存在。") # 添加调试信息
-                 return
-            print("监控：开始执行最终 UI 更新。") # 添加调试信息
+        # --- 准备最终 UI 更新的回调参数 ---
+        # 修正：将统计逻辑移到 final_ui_update
+        # final_update_args = { ... }
 
-            # --- Calculate Summary ---
-            success_count = 0
-            error_count = 0
-            cancelled_count = 0 # 新增取消计数
-            download_tree = self.view.get_download_treeview()
-            processed_ids = set(self.active_futures.keys()) # 只统计本次提交的任务
-            total_tasks_in_batch = len(processed_ids)
-            print(f"监控：统计 {total_tasks_in_batch} 个任务的结果...") # 添加调试信息
-
-            if download_tree:
-                for item_iid in processed_ids:
-                    try:
-                        if download_tree.exists(item_iid):
-                             status = download_tree.set(item_iid, 'status')
-                             if status == "下载完成":
-                                 success_count += 1
-                             elif status == "下载出错":
-                                 error_count += 1
-                             elif status == "已取消" or status == "用户已取消": # 检查取消状态
-                                 cancelled_count += 1
-                             # 其他状态（如准备中）视为未完成
-                        else:
-                             # 如果任务从列表移除了，也算一种结果（或计入失败？）
-                             print(f"监控：任务 {item_iid} 在列表中不存在，计为错误。")
-                             error_count += 1
-                    except Exception as read_status_e:
-                         print(f"监控：读取任务 {item_iid} 状态时出错: {read_status_e}")
-                         error_count += 1 # 读取状态失败也算错误
-            else:
-                print("监控：无法访问下载列表 Treeview，所有任务计为错误。")
-                error_count = total_tasks_in_batch # 无法读取列表，全算失败
-
-            # --- Re-enable Controls ---
-            print("监控：恢复 UI 控件状态。")
-            self.reset_cancel_request() # 重置取消标志
-            self.view.disable_controls(False)
-            try:
-                if hasattr(self.view, 'remove_button'): self.view.remove_button.config(state=tk.NORMAL)
-            except Exception as e: print(f"恢复移除按钮时出错: {e}")
-
-            # --- Update Status Bar and Show Summary Dialog ---
-            final_status_msg = "下载任务结束。"
-            if was_cancelled: final_status_msg = "下载任务已取消。"
-            self.update_status(final_status_msg)
-
-            summary_title = "下载完成" if not was_cancelled else "下载取消"
-            # Fix: Ensure string formatting and newlines are correct
-            summary_message = f"下载批次处理完毕。\n\n" \
-                              f"总计任务: {total_tasks_in_batch} 个\n" \
-                              f"成功: {success_count} 个\n" \
-                              f"失败: {error_count} 个\n"
-            if cancelled_count > 0:
-                 summary_message += f"取消: {cancelled_count} 个\n"
-            # if was_cancelled and (success_count + error_count + cancelled_count < total_tasks_in_batch):
-            #      summary_message += f"\n注意：部分任务可能因取消而未完成或状态未知。"
-
-            print(f"监控：显示总结弹窗: Title='{summary_title}', Message='{summary_message.replace('\\n', ' ')}'") # 添加调试信息
-            self.show_message(summary_title, summary_message)
-
+        # --- 在主线程中执行收尾 UI 更新 ---
         if self.root.winfo_exists():
             print("监控：调度 final_ui_update 到主线程。") # 添加调试信息
-            self.root.after(0, final_ui_update)
+            # 修正：传递 processed_ids 给 final_ui_update
+            self.root.after(0, lambda p_ids=processed_ids, cancelled=was_cancelled: self._final_ui_update(p_ids, cancelled))
         else:
             print("监控：窗口已关闭，无法调度 final_ui_update。") # 添加调试信息
 
-        print("监控：清空 active_futures。") # 添加调试信息
+        # 修正：清空操作移到 _final_ui_update 的末尾
+        # print("监控：清空 active_futures。")
+        # self.active_futures = {}
+
+    # 修正：修改 final_ui_update 签名并调整逻辑
+    def _final_ui_update(self, processed_ids, was_cancelled):
+        """在主线程中执行下载结束后的 UI 更新和总结。"""
+        if not self.root.winfo_exists():
+             print("监控：UI 更新时窗口已不存在。") # 添加调试信息
+             return
+        print("监控：开始执行最终 UI 更新。") # 添加调试信息
+
+        # --- Calculate Summary ---
+        success_count = 0
+        error_count = 0
+        cancelled_count = 0
+        download_tree = self.view.get_download_treeview()
+        total_tasks_in_batch = len(processed_ids) # 使用传递过来的 ID 数量
+        print(f"监控：统计 {total_tasks_in_batch} 个任务的结果...") # 添加调试信息
+
+        if download_tree:
+            for item_iid in processed_ids:
+                try:
+                    if download_tree.exists(item_iid):
+                         status = download_tree.set(item_iid, 'status')
+                         if status == "[OK]": # 使用新的状态文本
+                             success_count += 1
+                         elif status == "[ERR]": # 使用新的状态文本
+                             error_count += 1
+                         elif status == "[CAN]": # 使用新的状态文本
+                             cancelled_count += 1
+                         # 其他状态（如准备中[...]或百分比%）视为未完成
+                    else:
+                         # 如果任务从列表移除了，也算一种结果（或计入失败？）
+                         print(f"监控：任务 {item_iid} 在列表中不存在，计为错误。")
+                         error_count += 1
+                except Exception as read_status_e:
+                     print(f"监控：读取任务 {item_iid} 状态时出错: {read_status_e}")
+                     error_count += 1 # 读取状态失败也算错误
+        else:
+            print("监控：无法访问下载列表 Treeview，所有任务计为错误。")
+            error_count = total_tasks_in_batch # 无法读取列表，全算失败
+
+        # --- Re-enable Controls ---
+        print("监控：恢复 UI 控件状态。")
+        self.reset_cancel_request() # 重置取消标志
+        self.view.disable_controls(False)
+        try:
+            if hasattr(self.view, 'remove_button'): self.view.remove_button.config(state=tk.NORMAL)
+        except Exception as e: print(f"恢复移除按钮时出错: {e}")
+
+        # --- Update Status Bar and Show Summary Dialog ---
+        final_status_msg = "下载任务结束。"
+        if was_cancelled: final_status_msg = "下载任务已取消。"
+        self.update_status(final_status_msg)
+
+        # --- Update Progress Bar to Final State ---
+        try:
+            progress_bar = self.view.get_progress_bar()
+            if progress_bar:
+                if success_count == total_tasks_in_batch and not was_cancelled and total_tasks_in_batch > 0: # 添加 total_tasks_in_batch > 0 条件
+                     progress_bar['value'] = 100 # 全部成功则100%
+                else:
+                     progress_bar['value'] = 0   # 否则归零
+        except Exception as e: print(f"设置最终进度条时出错: {e}")
+
+        summary_title = "下载完成" if not was_cancelled else "下载取消"
+        summary_message = f"下载批次处理完毕。\n\n" \
+                          f"总计任务: {total_tasks_in_batch} 个\n" \
+                          f"成功: {success_count} 个\n" \
+                          f"失败: {error_count} 个\n"
+        if cancelled_count > 0:
+             summary_message += f"取消: {cancelled_count} 个\n"
+        # if was_cancelled and (success_count + error_count + cancelled_count < total_tasks_in_batch):
+        #      summary_message += f"\n注意：部分任务可能因取消而未完成或状态未知。"
+
+        print(f"监控：显示总结弹窗: Title='{summary_title}', Message='{summary_message.replace('\\n', ' ')}'") # 添加调试信息
+        self.show_message(summary_title, summary_message)
+
+        # 修正：在 final_ui_update 的最后清空 futures 和 progress
+        print("监控：清空 active_futures 和 active_task_progress。") # 添加调试信息
         self.active_futures = {} # 清空 Future 记录
+        self.active_task_progress = {} # 清空进度记录
 
 
     def _on_closing(self):
