@@ -59,11 +59,11 @@ class ConfigManager:
         try:
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2, ensure_ascii=False)
-            # print(f"配置已保存到 {self.config_path}") # 减少不必要的输出
-            return True
+            return True, None # 修改：成功时返回 True 和 None
         except Exception as e:
-            print(f"保存配置文件时出错: {e}")
-            return False
+            error_msg = f"保存配置文件时出错: {e}"
+            print(error_msg)
+            return False, error_msg # 修改：失败时返回 False 和错误信息
 
     def get_config(self, key, default=None):
         """
@@ -95,9 +95,12 @@ class ConfigManager:
 
         参数:
             updates (dict): 包含要更新的键值对的字典。
+        返回:
+            tuple[bool, str | None]: 一个元组，第一个元素表示是否成功，
+                                      第二个元素在失败时包含错误信息。
         """
         self.config.update(updates)
-        self.save_config()
+        return self.save_config() # 修改：直接返回 save_config 的结果
 
     def _get_default_config(self):
         """返回一个默认的空配置字典。"""

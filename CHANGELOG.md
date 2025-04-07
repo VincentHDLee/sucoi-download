@@ -5,6 +5,38 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本遵循[语义化版本](https://semver.org/lang/zh-CN/)规范。
 
+## [0.2.2] - 2025-04-07
+
+### 新增 (Added)
+
+*   **并行下载框架**:
+    *   引入 `concurrent.futures.ThreadPoolExecutor` 管理下载线程。
+    *   添加 `max_concurrent_downloads` 配置项到 `config.example.json` (默认值为 3)。
+    *   在设置窗口添加了最大并发下载数 (1-10) 的下拉选择框。
+*   **下载取消改进**:
+    *   `DownloadService` 现在会检查取消请求标志，并尝试在下载过程中断任务（通过进度钩子）。
+    *   任务被用户取消时，状态会更新为“已取消”。
+*   **错误处理增强**:
+    *   `DownloadService` 尝试解析常见的 `yt-dlp` 下载错误，并提供更友好的错误描述。
+    *   保存设置失败时，错误提示框会显示更详细的原因（如果可用）。
+*   **设置窗口提示**: 当保存设置且 YouTube API Key 为空时，会额外弹出警告提示。
+
+### 更改 (Changed)
+
+*   修改了 `save_settings` 逻辑，以保存并发数配置，并在配置变化时重新创建线程池。
+*   修改了 `_on_closing` 逻辑，以正确关闭 `ThreadPoolExecutor`。
+*   修改了 `start_immediate_downloads` 和 `start_selected_downloads`，使用 `ThreadPoolExecutor` 提交任务。
+*   创建了 `_monitor_download_futures` 方法替换旧的 `_monitor_download_threads` 来监控 `Future` 对象。
+*   修改了 `ConfigManager`，使其能在保存失败时返回错误信息。
+*   调整了设置窗口中底部按钮的布局，统一使用 `grid` 并将“选择路径”按钮移至左侧。
+
+### 修复 (Fixed)
+
+*   修复了设置窗口中布局管理器 (`pack` 和 `grid`) 混用导致的 `TclError`。
+
+---
+
+
 ## [0.2.1] - 2025-04-07
 
 ### 新增 (Added)
@@ -21,6 +53,12 @@
     *   下载开始时，进度条会立即显示一个小的初始值 (安慰性进度)。
 *   **"停止下载"按钮样式**: 将 "停止下载" 按钮背景色改为淡红色 (`#f8d7da`) 以示醒目。
 *   **"移除选中项"按钮锁定逻辑**: 该按钮现在只在下载过程中被禁用，下载前和结束后均可使用。
+*   **代码整理 (TikTok 模块)**:
+    *   重构 `modules/tiktok/logic.py`，使其不再直接依赖 UI 控件，改为接收处理后的 URL 列表。
+    *   统一 `modules/tiktok/logic.py` 中的消息提示，改为调用主程序的 `show_message` 方法。
+    *   移除 `modules/tiktok/logic.py` 中未使用的导入、冗余函数 (`_perform_single_tiktok_download`) 和测试代码块。
+    *   更新 `ui/tiktok_tab.py` 以适配 `logic` 函数签名变化，在调用前提取 URL 列表。
+    *   改进了 `modules/tiktok/logic.py` 的函数文档字符串。
 
 ### 修复 (Fixed)
 

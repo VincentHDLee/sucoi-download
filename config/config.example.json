@@ -1,4 +1,5 @@
 {
   "api_key": "YOUR_YOUTUBE_DATA_API_KEY_HERE",
-  "default_download_path": ""
+  "default_download_path": "",
+  "max_concurrent_downloads": 3
 }

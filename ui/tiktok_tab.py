@@ -43,22 +43,35 @@ def create_tab(notebook, main_app_instance):
     # 注意：lambda 中直接使用 logic.add_tiktok_urls 可能导致作用域问题
     # 需要确保 lambda 创建时 logic 模块已导入
     # 更好的方式是在 main_app 中创建 tab 后再配置 command
+    # 导入 tkinter.messagebox 以便在逻辑加载失败时显示错误
+    from tkinter import messagebox
+
+    def _extract_urls_from_text(text_widget):
+        """从 Text 控件提取、清洗 URL 列表。"""
+        urls_text = text_widget.get("1.0", tk.END).strip()
+        if not urls_text:
+            return []
+        urls = urls_text.splitlines()
+        return [url.strip() for url in urls if url.strip()]
+
     def setup_commands():
         try:
             from ..modules.tiktok import logic # 尝试相对导入
-            add_button.config(command=lambda: logic.add_tiktok_urls(url_text, main_app_instance))
-            download_now_button.config(command=lambda: logic.download_tiktok_urls(url_text, main_app_instance))
+            # 修改：先提取 URL 列表再传递给 logic 函数
+            add_button.config(command=lambda: logic.add_tiktok_urls(_extract_urls_from_text(url_text), main_app_instance))
+            download_now_button.config(command=lambda: logic.download_tiktok_urls(_extract_urls_from_text(url_text), main_app_instance))
             print("TikTok tab commands configured using relative import.")
         except ImportError:
              try:
                  # 如果在顶层运行 ui 文件测试，可能需要不同的导入方式
                  import modules.tiktok.logic as logic
-                 add_button.config(command=lambda: logic.add_tiktok_urls(url_text, main_app_instance))
-                 download_now_button.config(command=lambda: logic.download_tiktok_urls(url_text, main_app_instance))
+                 # 修改：先提取 URL 列表再传递给 logic 函数
+                 add_button.config(command=lambda: logic.add_tiktok_urls(_extract_urls_from_text(url_text), main_app_instance))
+                 download_now_button.config(command=lambda: logic.download_tiktok_urls(_extract_urls_from_text(url_text), main_app_instance))
                  print("TikTok tab commands configured using direct import (fallback).")
              except ImportError as e:
                  print(f"Error configuring TikTok commands: Could not import TikTok logic. {e}")
-                 # 保留占位符命令
+                 # 保留占位符命令，使用 messagebox 显示错误
                  add_button.config(command=lambda: messagebox.showerror("错误", "无法加载 TikTok 添加逻辑"))
                  download_now_button.config(command=lambda: messagebox.showerror("错误", "无法加载 TikTok 下载逻辑"))
 

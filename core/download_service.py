@@ -3,6 +3,11 @@ import os
 import yt_dlp
 import threading # Only if service manages threads, otherwise remove
 
+class UserCancelledError(Exception):
+    """Exception raised when user requests download cancellation."""
+    pass
+
+
 # TODO: Integrate with a proper logging setup
 import logging
 logger = logging.getLogger(__name__)
@@ -46,6 +51,7 @@ class DownloadService:
         # 从上下文中获取当前任务的回调和唯一 ID
         thread_id = threading.get_ident()
         context_key = thread_id # 使用线程 ID 作为 key
+        is_cancel_requested = None
         with self._context_lock:
             context = self._callback_context.get(context_key)
 
@@ -54,10 +60,22 @@ class DownloadService:
              return
 
         callback = context.get('callback')
-        item_id = context.get('item_id') # 这是传递给 download_item 的原始 ID (如 YouTube_xxxx)
-        if not callback or not item_id:
-            logger.warning("进度钩子上下文信息不完整 (item_id: %s, callback: %s)", item_id, callback)
+        item_id = context.get('item_id')
+        # 修改：获取取消检查函数
+        cancel_func = context.get('is_cancel_requested_func')
+
+        if not callback or not item_id or not cancel_func:
+            logger.warning("进度钩子上下文信息不完整 (item_id: %s, callback: %s, cancel_func: %s)", item_id, callback, cancel_func)
             return
+
+        # 修改：检查是否请求取消
+        try:
+            if cancel_func():
+                 logger.info("检测到用户取消请求 for [%s]", item_id)
+                 raise UserCancelledError(f"用户取消了任务 {item_id}")
+        except Exception as cancel_check_e:
+             logger.error("检查取消状态时出错 for [%s]: %s", item_id, cancel_check_e)
+             # 如果检查函数本身出错，我们继续执行，避免中断下载
 
         # --- 提取信息 ---
         status = d['status']
@@ -90,28 +108,33 @@ class DownloadService:
             logger.error("调用外部进度回调时出错 (item_id: %s): %s", item_id, cb_e, exc_info=True)
 
 
-    def download_item(self, item_info, progress_callback):
+    # 修改：增加 is_cancel_requested_func 参数
+    def download_item(self, item_info, progress_callback, is_cancel_requested_func):
         """
         下载单个视频项目。
 
         参数:
             item_info (dict): 包含下载信息的字典，应包含:
-                - 'id' (str): 任务的唯一标识符 (例如 "YouTube_xxxxx", "TikTok_yyyyy")。
+                - 'id' (str): 任务的唯一标识符。
                 - 'url' (str): 要下载的视频 URL。
                 - 'output_path' (str): 下载文件的目标目录。
-                - 'ydl_opts' (dict, optional): 特定于此任务的额外 yt-dlp 选项，会覆盖默认选项。
-            progress_callback (function): 用于报告进度的回调函数，接收一个包含进度信息的字典。
+                - 'ydl_opts' (dict, optional): 特定于此任务的额外 yt-dlp 选项。
+            progress_callback (function): 用于报告进度的回调函数。
+            is_cancel_requested_func (function): 一个函数，调用时返回 True 表示用户请求取消。
 
         返回:
-            dict: 包含下载结果的字典，例如 {'id': item_id, 'status': 'finished' | 'error', 'filepath': ..., 'error_message': ...}
+            dict: 包含下载结果的字典。
         """
         item_id = item_info.get('id')
         url = item_info.get('url')
         output_path = item_info.get('output_path')
 
-        if not all([item_id, url, output_path]):
-            logger.error("下载信息不完整: id=%s, url=%s, output_path=%s", item_id, url, output_path)
-            return {'id': item_id, 'status': 'error', 'error_message': '下载信息不完整'}
+        # 验证必要信息
+        if not all([item_id, url, output_path, callable(progress_callback), callable(is_cancel_requested_func)]):
+            error_msg = "下载信息或回调函数不完整"
+            logger.error("%s: id=%s, url=%s, output_path=%s, cb=%s, cancel_func=%s",
+                         error_msg, item_id, url, output_path, progress_callback, is_cancel_requested_func)
+            return {'id': item_id, 'status': 'error', 'error_message': error_msg}
 
         final_status = 'pending'
         final_filepath = None
@@ -138,7 +161,12 @@ class DownloadService:
         # --- 设置回调上下文 ---
         thread_id = threading.get_ident()
         context_key = thread_id
-        context = {'item_id': item_id, 'callback': progress_callback}
+        # 修改：在上下文中加入取消检查函数
+        context = {
+            'item_id': item_id,
+            'callback': progress_callback,
+            'is_cancel_requested_func': is_cancel_requested_func # 添加取消函数引用
+        }
         with self._context_lock:
             self._callback_context[context_key] = context
             # logger.debug("设置回调上下文 for %s (线程: %s)", item_id, thread_id)
@@ -150,44 +178,106 @@ class DownloadService:
             progress_callback({'id': item_id, 'status': 'preparing'})
 
             with yt_dlp.YoutubeDL(task_opts) as ydl:
-                # download() 返回 0 表示成功, 非 0 表示错误 (当 ignoreerrors=True)
                 result_code = ydl.download([url])
-
-                # 在下载完成后尝试获取最终文件路径 (可能有多个文件，取第一个？)
-                # info_dict = ydl.extract_info(url, download=False) # 重新获取信息可能耗时
-                # final_filepath = ydl.prepare_filename(info_dict) # 这个更可靠，但需要额外调用
-
-                # 检查结果码
                 if result_code == 0:
                     final_status = 'finished'
                     logger.info("下载完成 [%s]", item_id)
-                    # finished 状态应由钩子发送，这里只记录内部状态
                 else:
+                    # 如果 ignoreerrors=True，钩子可能已经报告了错误，
+                    # 这里只记录一个通用错误，除非能从 ydl 实例获取更具体信息
                     final_status = 'error'
-                    error_message = f"yt-dlp 返回错误码: {result_code}"
-                    logger.error("下载失败 [%s]: %s", item_id, error_message)
-                    # error 状态也应由钩子发送
+                    error_message = f"yt-dlp 返回错误码: {result_code} (可能因 ignoreerrors)"
+                    logger.error("下载似乎失败 [%s]: %s", item_id, error_message)
+                    # 确保回调至少收到一个错误状态
+                    # 检查钩子是否已报告错误，避免重复发送
+                    if not self._was_error_reported_by_hook(context_key):
+                         progress_callback({'id': item_id, 'status': 'error', 'description': "下载失败 (查看日志)"})
+
+        # 修改：优先捕获 UserCancelledError
+        except UserCancelledError as uce:
+            final_status = 'cancelled' # 使用新的状态
+            error_message = str(uce)
+            logger.info("任务已取消 [%s]: %s", item_id, error_message)
+            # 发送取消状态给回调
+            progress_callback({'id': item_id, 'status': 'cancelled', 'description': "用户已取消"})
 
         except yt_dlp.utils.DownloadError as de:
             final_status = 'error'
-            error_message = f"yt-dlp 下载错误: {de}"
-            logger.error("下载失败 [%s]: %s", item_id, error_message, exc_info=True)
-            # 确保发送错误状态给回调
-            progress_callback({'id': item_id, 'status': 'error', 'description': error_message[:100]})
+            # 修改：尝试细化错误信息
+            error_message_short = self._extract_friendly_error(de)
+            error_message = f"下载错误: {error_message_short}" # 完整的原始错误可能太长
+            logger.error("下载失败 [%s]: %s\nOriginal Error: %s", item_id, error_message, de, exc_info=False) # Log full error
+            progress_callback({'id': item_id, 'status': 'error', 'description': error_message_short})
+            self._mark_error_reported(context_key) # 标记已报告错误
+
         except Exception as e:
             final_status = 'error'
-            error_message = f"下载过程中发生未知错误: {e}"
+            error_message = f"未知错误: {e}"
             logger.error("下载失败 [%s]: %s", item_id, error_message, exc_info=True)
-            # 确保发送错误状态给回调
-            progress_callback({'id': item_id, 'status': 'error', 'description': error_message[:100]})
+            progress_callback({'id': item_id, 'status': 'error', 'description': f"未知错误: {str(e)[:50]}"}) # 截断
+            self._mark_error_reported(context_key) # 标记已报告错误
+
         finally:
             # --- 清理回调上下文 ---
             with self._context_lock:
                 if context_key in self._callback_context:
                     del self._callback_context[context_key]
-                    # logger.debug("清理回调上下文 for %s (线程: %s)", item_id, thread_id)
-                else:
-                    logger.warning("尝试清理不存在的回调上下文 (线程: %s)", thread_id)
+                # else: # 不再警告，避免并发问题
+
+    def _extract_friendly_error(self, download_error):
+        """尝试从 yt-dlp DownloadError 中提取更友好的错误信息。"""
+        original_error = download_error
+        error_str = str(original_error).lower() # 转小写方便匹配
+
+        # 尝试从原始异常链中查找更具体的信息 (如果可用)
+        if hasattr(download_error, 'exc_info') and download_error.exc_info and len(download_error.exc_info) > 1:
+            original_error = download_error.exc_info[1]
+            error_str = str(original_error).lower()
+
+        # 常见错误模式匹配
+        if 'video unavailable' in error_str:
+            return "视频不可用 (可能已删除或私有)"
+        if 'private video' in error_str:
+            return "私有视频，无法下载"
+        if 'geo-restricted' in error_str or 'content is not available in your country' in error_str:
+            return "视频地区限制，无法下载"
+        if 'login required' in error_str:
+            return "需要登录才能访问"
+        if 'http error 404' in error_str or 'not found' in error_str:
+            return "资源未找到 (404)"
+        if 'http error 403' in error_str or 'forbidden' in error_str:
+            return "禁止访问 (403)"
+        if 'resolve host name' in error_str or 'name or service not known' in error_str:
+             return "网络错误：无法解析主机名"
+        if 'network is unreachable' in error_str:
+             return "网络错误：网络不可达"
+        if 'connection refused' in error_str:
+             return "网络错误：连接被拒绝"
+        if 'timed out' in error_str:
+             return "网络错误：连接超时"
+
+        # 如果没有匹配到特定模式，返回原始错误的前缀
+        # 移除常见的 yt-dlp 前缀
+        error_prefix = "error: "
+        short_error = str(download_error)
+        if short_error.lower().startswith(error_prefix):
+             short_error = short_error[len(error_prefix):]
+
+        return short_error[:100] # 返回截断后的原始错误
+
+    def _mark_error_reported(self, context_key):
+        """标记指定上下文的错误已被报告（通过回调）。"""
+        with self._context_lock:
+            if context_key in self._callback_context:
+                self._callback_context[context_key]['error_reported'] = True
+
+    def _was_error_reported_by_hook(self, context_key):
+        """检查指定上下文的错误是否已被钩子报告过。"""
+        with self._context_lock:
+            context = self._callback_context.get(context_key)
+            return context and context.get('error_reported', False)
+
+                #    logger.warning("Attempting to cleanup non-existent callback context (Thread: %s)", thread_id)
 
             # --- 返回最终结果 ---
             result = {'id': item_id, 'status': final_status}
