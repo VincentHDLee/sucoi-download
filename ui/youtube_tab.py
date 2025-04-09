@@ -8,19 +8,19 @@ def create_tab(notebook, app):
 
     # --- 控件定义 ---
     # 搜索关键词
-    keyword_label = tk.Label(youtube_tab, text="搜索关键词 (多个用空格分隔):")
+    keyword_label = ttk.Label(youtube_tab, text="搜索关键词 (多个用空格分隔):") # tk -> ttk
     # 注意：控件引用存储在 app 实例上，以便主逻辑访问
-    app.youtube_keyword_entry = tk.Entry(youtube_tab)
+    app.youtube_keyword_entry = ttk.Entry(youtube_tab) # tk -> ttk
 
     # 筛选条件
-    duration_label = tk.Label(youtube_tab, text="时长:")
+    duration_label = ttk.Label(youtube_tab, text="时长:") # tk -> ttk
     app.youtube_duration_var = tk.StringVar() # 存储在 app 上
     duration_combo = ttk.Combobox(youtube_tab, textvariable=app.youtube_duration_var,
                                        values=["任意", "短片 (<4分钟)", "中等 (4-20分钟)", "长片 (>20分钟)"],
                                        state='readonly')
     duration_combo.current(0)
 
-    order_label = tk.Label(youtube_tab, text="排序:")
+    order_label = ttk.Label(youtube_tab, text="排序:") # tk -> ttk
     app.youtube_order_var = tk.StringVar() # 存储在 app 上
     order_combo = ttk.Combobox(youtube_tab, textvariable=app.youtube_order_var,
                                     values=["相关性", "上传日期", "观看次数", "评分"],
@@ -40,8 +40,8 @@ def create_tab(notebook, app):
 
 
     # 按钮 (command 指向 app 实例的方法)
-    app.youtube_search_button = tk.Button(youtube_tab, text="搜索视频", command=app.handle_search)
-    app.youtube_add_button = tk.Button(youtube_tab, text="添加到下载列表", command=app.add_selected_to_download)
+    app.youtube_search_button = ttk.Button(youtube_tab, text="搜索视频", command=app.handle_search) # tk -> ttk
+    app.youtube_add_button = ttk.Button(youtube_tab, text="添加到下载列表", command=app.add_selected_to_download) # tk -> ttk
     # 全局开始下载按钮在 MainWindow 中，这里不需要单独的下载按钮
     # app.youtube_download_button = tk.Button(youtube_tab, text="开始下载", command=app.start_selected_downloads)
 

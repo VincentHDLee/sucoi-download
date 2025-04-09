@@ -6,38 +6,51 @@ from tkinter import ttk
 
 def create_tab(notebook, main_app_instance):
     """创建并返回 TikTok 标签页的 Frame。"""
-    tiktok_frame = ttk.Frame(notebook, padding="10")
+    # 使用 ttk.Frame 并增加内边距
+    tiktok_frame = ttk.Frame(notebook, padding="15") # 增加 padding
 
     # --- TikTok 控件定义 ---
-    url_label = tk.Label(tiktok_frame, text="输入 TikTok 视频 URL (每行一个):")
-    url_text = tk.Text(tiktok_frame, height=10, width=50) # 允许多个 URL
+    # 使用 ttk.Label
+    url_label = ttk.Label(tiktok_frame, text="输入 TikTok 视频 URL (每行一个):")
+    # 为 Text 组件创建包含滚动条的外部 Frame
+    text_frame = ttk.Frame(tiktok_frame)
+    url_text = tk.Text(text_frame, height=10, width=60, relief=tk.SUNKEN, borderwidth=1) # 调整宽度，添加边框
+    url_scrollbar = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=url_text.yview)
+    url_text.configure(yscrollcommand=url_scrollbar.set)
 
-    # 使用 Frame 来容纳按钮
-    button_frame = tk.Frame(tiktok_frame)
-    # TODO: 按钮功能需要连接到主程序的通用下载队列或模块内部逻辑
-    # command 需要修改为调用 logic 中的函数，并通过 main_app_instance 传递必要参数
-    # 例如: command=lambda: logic.add_tiktok_urls(url_text, main_app_instance)
-    add_button = tk.Button(button_frame, text="添加到下载队列", command=lambda: print("Add to queue placeholder")) # 临时占位
-    download_now_button = tk.Button(button_frame, text="立即下载", command=lambda: print("Download now placeholder")) # 临时占位 # 修改按钮文本
+    # 使用 ttk.Frame 容纳按钮
+    button_frame = ttk.Frame(tiktok_frame)
+    # 使用 ttk.Button
+    add_button = ttk.Button(button_frame, text="添加到下载队列", command=lambda: print("Add to queue placeholder")) # 临时占位
+    download_now_button = ttk.Button(button_frame, text="立即下载", command=lambda: print("Download now placeholder")) # 临时占位
 
     # --- TikTok 布局 ---
-    url_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 10), pady=5)
-    url_text.grid(row=1, column=0, sticky="nsew", padx=(0, 10), pady=5)
+    # 标签布局
+    url_label.grid(row=0, column=0, sticky=tk.W, padx=0, pady=(0, 5)) # 调整间距
 
-    button_frame.grid(row=2, column=0, pady=10, sticky="ew")
-    # 让按钮在 Frame 内分布
-    button_frame.columnconfigure(0, weight=1)
-    button_frame.columnconfigure(1, weight=1)
-    add_button.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
-    download_now_button.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+    # 文本框和滚动条布局
+    text_frame.grid(row=1, column=0, sticky="nsew", pady=5)
+    text_frame.rowconfigure(0, weight=1)
+    text_frame.columnconfigure(0, weight=1)
+    url_text.grid(row=0, column=0, sticky="nsew")
+    url_scrollbar.grid(row=0, column=1, sticky="ns")
+
+    # 按钮框架布局
+    button_frame.grid(row=2, column=0, pady=(15, 0), sticky="ew") # 增加上方间距
+    # 让按钮居中显示，而不是拉伸
+    button_frame.columnconfigure(0, weight=1) # 左侧空白
+    button_frame.columnconfigure(1, weight=0) # 添加按钮
+    button_frame.columnconfigure(2, weight=0) # 下载按钮
+    button_frame.columnconfigure(3, weight=1) # 右侧空白
+    add_button.grid(row=0, column=1, padx=(0, 5), pady=5, sticky="ew") # 按钮间加点间距
+    download_now_button.grid(row=0, column=2, padx=(5, 0), pady=5, sticky="ew")
 
     # 配置 TikTok Frame 的网格权重
-    tiktok_frame.rowconfigure(1, weight=1) # 让 Text 控件可垂直扩展
-    tiktok_frame.columnconfigure(0, weight=1) # 让 Text 控件可水平扩展
+    tiktok_frame.rowconfigure(1, weight=1) # 让 Text frame 可垂直扩展
+    tiktok_frame.columnconfigure(0, weight=1) # 让 Text frame 可水平扩展
 
-    # 将需要交互的控件附加到 frame 或 main_app_instance 上，以便 logic 访问
-    # 这是一种耦合方式，后续可优化为回调或事件
-    tiktok_frame.url_text = url_text # 将 url_text 暴露给外部
+    # 将需要交互的控件附加到 frame 或 main_app_instance 上
+    tiktok_frame.url_text = url_text # 暴露 url_text
 
     # 在创建时将按钮命令连接到 logic (需要先调整 import)
     # 注意：lambda 中直接使用 logic.add_tiktok_urls 可能导致作用域问题

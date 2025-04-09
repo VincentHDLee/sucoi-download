@@ -23,7 +23,7 @@ class DownloadService:
             'noplaylist': True,
             'encoding': 'utf-8',
             'nocheckcertificate': True,
-            'ignoreerrors': True, # 注意：设置为 True 时，yt-dlp 内部错误可能不会抛出异常，而是返回错误码
+            'ignoreerrors': False, # 修改为 False，让 yt-dlp 在出错时抛出异常
             'postprocessors': [
                  {'key': 'FFmpegVideoConvertor', 'preferedformat': 'mp4'},
             ],
@@ -112,14 +112,11 @@ class DownloadService:
                 context[f"{context_key}_error_reported"] = reported
 
     def _extract_friendly_error(self, download_error):
-        msg = str(download_error)
-        if 'HTTP Error 404' in msg: return "视频未找到 (404)"
-        if 'HTTP Error 403' in msg: return "访问被拒绝 (403)"
-        if 'Video unavailable' in msg: return "视频不可用"
-        if 'Private video' in msg: return "私密视频"
-        if 'livestream' in msg and 'not available' in msg: return "直播已结束或不可用"
-        if '[SSL: UNEXPECTED_EOF_WHILE_READING]' in msg: return "SSL连接意外中断"
-        return msg[:100]
+        # TODO: 未来根据 download_error 的类型和内容，解析更具体的错误原因，
+        # 例如区分视频不存在、权限问题、网络问题等。
+        # msg = str(download_error) # 保留原始消息用于日志记录可能更好
+        # logger.debug(f"原始下载错误: {msg}") # 可以添加调试日志记录原始错误
+        return "下载失败" # 暂时统一返回通用错误信息
 
     def download_item(self, item_info, progress_callback, is_cancel_requested_func):
         item_id = item_info.get('id')
@@ -186,15 +183,13 @@ class DownloadService:
                             break # 成功，跳出 for 循环
                         else:
                             # result_code 非 0
-                            if not self._was_error_reported_by_hook(context_key):
-                                 attempt_error_message = f"yt-dlp 返回错误码: {result_code}"
-                                 logger.error(f"下载失败 [{item_id}] (尝试 {attempt + 1}): {attempt_error_message}")
-                                 # 标记错误，但不立即设置 final_status 或 break
-                                 self._mark_error_reported(context_key) # 标记本次尝试有错误
-                            else:
-                                 attempt_error_message = "错误已由钩子报告"
-                                 logger.info(f"下载失败 [{item_id}] (尝试 {attempt + 1}, 错误已由钩子报告)")
-                            # 无论如何，如果 result_code != 0，这次尝试算失败，继续循环或结束
+                            # 如果 ignoreerrors=False, 理论上错误会通过异常抛出，
+                            # result_code != 0 的情况会减少。但以防万一保留处理。
+                            attempt_error_message = f"yt-dlp 返回非零状态码: {result_code}"
+                            logger.error(f"下载失败 [{item_id}] (尝试 {attempt + 1}): {attempt_error_message}")
+                            # 标记错误，继续重试或结束循环
+                            self._mark_error_reported(context_key)
+                            # 不再需要检查 _was_error_reported_by_hook，因为异常处理会捕获更详细信息
 
                 except UserCancelledError as uce:
                     final_status = 'cancelled'
@@ -204,23 +199,21 @@ class DownloadService:
                     break # 取消后跳出 for 循环
 
                 except yt_dlp.utils.DownloadError as de:
-                    if not self._was_error_reported_by_hook(context_key):
-                        error_message_short = self._extract_friendly_error(de)
-                        attempt_error_message = f"下载错误: {error_message_short}"
-                        logger.error(f"下载失败 [{item_id}] (尝试 {attempt + 1}): {attempt_error_message}\nOriginal Error: %s", de, exc_info=False)
-                        self._mark_error_reported(context_key)
-                    else:
-                        attempt_error_message = "下载错误已由钩子报告"
-                        logger.info(f"下载错误 [{item_id}] (尝试 {attempt + 1}, 已由钩子报告): %s", de)
+                    # 异常处理：捕获 DownloadError 并提取信息
+                    # if not self._was_error_reported_by_hook(context_key): # 移除检查，总是尝试报告新捕获的错误
+                    error_message_short = self._extract_friendly_error(de) # 提取友好错误信息
+                    attempt_error_message = f"{error_message_short}" # 直接使用提取后的信息
+                    logger.error(f"下载失败 [{item_id}] (尝试 {attempt + 1}): {attempt_error_message}\nOriginal Error: %s", de, exc_info=False)
+                    self._mark_error_reported(context_key) # 标记错误发生
+                    # 删除了原有的 else 块
 
                 except Exception as e:
-                    if not self._was_error_reported_by_hook(context_key):
-                        attempt_error_message = f"未知错误: {e}"
-                        logger.error(f"下载失败 [{item_id}] (尝试 {attempt + 1}): {attempt_error_message}", exc_info=True)
-                        self._mark_error_reported(context_key)
-                    else:
-                        attempt_error_message = "未知错误已由钩子报告"
-                        logger.info(f"未知错误 [{item_id}] (尝试 {attempt + 1}, 已由钩子报告): %s", e)
+                    # 未知异常处理
+                    # if not self._was_error_reported_by_hook(context_key): # 移除检查
+                    attempt_error_message = f"发生未知错误: {e}" # 包含异常类型
+                    logger.error(f"下载失败 [{item_id}] (尝试 {attempt + 1}): {attempt_error_message}", exc_info=True)
+                    self._mark_error_reported(context_key) # 标记错误发生
+                    # 删除了原有的 else 块
 
                 # --- 循环结束判断与重试延时 ---
                 if final_status == 'finished' or final_status == 'cancelled':
@@ -245,10 +238,10 @@ class DownloadService:
                 else: # 已达到最大重试次数
                     logger.error(f"任务 [{item_id}] 所有 {max_retries + 1} 次尝试均失败。")
                     final_status = 'error' # 最终状态设为错误
-                    error_message = attempt_error_message or "达到最大重试次数" # 使用最后一次尝试的错误或通用消息
+                    error_message = attempt_error_message or "所有重试尝试均失败" # 使用最后一次捕获的错误或通用消息
                     # 确保发送最终错误状态回调
-                    if not self._was_error_reported_by_hook(context_key): # 避免重复发送
-                         progress_callback({'id': item_id, 'status': 'error', 'description': error_message[:100]}) # 发送清理后的错误信息
+                    # if not self._was_error_reported_by_hook(context_key): # 注释掉此检查，确保最终错误状态总是被发送以覆盖 'retrying'
+                    progress_callback({'id': item_id, 'status': 'error', 'description': error_message[:100]}) # 发送清理后的错误信息
                     break # 跳出 for 循环
 
             # --- for 循环结束 ---

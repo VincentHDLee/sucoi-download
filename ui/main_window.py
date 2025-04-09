@@ -22,6 +22,15 @@ class MainWindow:
         self.root = root
         self.app = app_controller # 引用主应用逻辑控制器
 
+        # --- 初始化 ttk 样式 ---
+        self.style = ttk.Style()
+        # 为停止按钮配置特殊样式
+        self.style.configure('Danger.TButton', foreground='black') # 前景色
+        # 使用 map 配置不同状态下的背景色
+        self.style.map('Danger.TButton',
+                       background=[('active', '#f5c6cb'), # 鼠标悬停/按下时的颜色
+                                   ('!disabled', '#f8d7da')]) # 正常状态下的颜色
+
         self.root.title("Sucoidownload - 模块化视频下载器")
         self.root.geometry("1280x720") # 调整初始大小
 
@@ -42,14 +51,14 @@ class MainWindow:
     def _create_widgets(self):
         """创建窗口中的所有主要控件。"""
         # --- 顶部区域 (状态、设置) ---
-        self.top_frame = tk.Frame(self.root)
-        self.status_label = tk.Label(self.top_frame, text="状态: 就绪")
-        self.settings_button = tk.Button(self.top_frame, text="设置", command=self.open_settings_window)
+        self.top_frame = ttk.Frame(self.root) # tk -> ttk
+        self.status_label = ttk.Label(self.top_frame, text="状态: 就绪") # tk -> ttk
+        self.settings_button = ttk.Button(self.top_frame, text="设置", command=self.open_settings_window) # tk -> ttk
 
         # --- 路径选择区域 ---
-        self.path_frame = tk.Frame(self.root)
-        self.path_button = tk.Button(self.path_frame, text="选择下载路径", command=self.select_path)
-        self.path_entry = tk.Entry(self.path_frame, textvariable=self.path_var)
+        self.path_frame = ttk.Frame(self.root) # tk -> ttk
+        self.path_button = ttk.Button(self.path_frame, text="选择下载路径", command=self.select_path) # tk -> ttk
+        self.path_entry = ttk.Entry(self.path_frame, textvariable=self.path_var) # tk -> ttk
 
         # --- 创建 Notebook (中部区域) ---
         self.notebook = ttk.Notebook(self.root)
@@ -63,11 +72,11 @@ class MainWindow:
         self.download_tree.configure(yscrollcommand=self.download_scrollbar.set)
 
         # --- 下载列表下方的控件 (移除进度条, 父容器改为 self.root) ---
-        self.controls_frame = tk.Frame(self.root) # <--- 移除背景色测试
-        self.remove_button = tk.Button(self.controls_frame, text="移除选中项", command=self.remove_selected_downloads)
-        self.download_selected_button = tk.Button(self.controls_frame, text="下载选中项", command=self.app.start_selected_downloads) # 新增按钮
-        # 修改：为停止按钮添加淡红色背景
-        self.stop_button = tk.Button(self.controls_frame, text="停止下载", command=self.app.request_cancel, background='#f8d7da') # 通知控制器取消
+        self.controls_frame = ttk.Frame(self.root) # tk -> ttk
+        self.remove_button = ttk.Button(self.controls_frame, text="移除选中项", command=self.remove_selected_downloads) # tk -> ttk
+        self.download_selected_button = ttk.Button(self.controls_frame, text="下载选中项", command=self.app.start_selected_downloads) # tk -> ttk
+        # 修改：使用 ttk.Style 代替 background
+        self.stop_button = ttk.Button(self.controls_frame, text="停止下载", command=self.app.request_cancel, style='Danger.TButton') # tk -> ttk, 使用 style
 
         # --- 单独创建主进度条 (父容器改为 self.root) ---
         self.progress_bar = ttk.Progressbar(self.root, orient=tk.HORIZONTAL, length=100, mode='determinate')
@@ -232,7 +241,7 @@ class MainWindow:
         self.download_tree.set(item_iid, column='select', value=new_value)
 
     def remove_selected_downloads(self):
-        """从下载列表中移除所有选中的项。"""
+        """从下载列表中移除所有选中的项，并标记它们以便不再持久化。"""
         items_to_remove = []
         for item_iid in self.download_tree.get_children(''):
             try:
@@ -244,7 +253,13 @@ class MainWindow:
             self.show_message("提示", "没有选中的下载项可移除。")
             return
 
-        if messagebox.askyesno("确认", f"确定要移除选中的 {len(items_to_remove)} 个下载项吗？", parent=self.root):
+            # --- 新增：通知 Controller 标记这些项为已移除 ---
+            if hasattr(self.app, 'mark_items_as_removed'):
+                self.app.mark_items_as_removed(items_to_remove)
+            else:
+                print("警告: App Controller 没有 mark_items_as_removed 方法，无法标记移除项。")
+            # -----------------------------------------
+        if messagebox.askyesno("确认", f"确定要移除选中的 {len(items_to_remove)} 个下载项吗？\n（移除后下次启动不会加载）", parent=self.root):
             for item_iid in items_to_remove:
                 try:
                     if self.download_tree.exists(item_iid): self.download_tree.delete(item_iid)
@@ -268,19 +283,19 @@ class MainWindow:
         api_key_var = tk.StringVar(); download_path_var = tk.StringVar(); concurrency_var = tk.StringVar()
 
         # --- API Key ---
-        tk.Label(settings_frame, text="YouTube API Key:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
-        api_key_entry = tk.Entry(settings_frame, textvariable=api_key_var, width=40)
+        ttk.Label(settings_frame, text="YouTube API Key:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W) # tk -> ttk
+        api_key_entry = ttk.Entry(settings_frame, textvariable=api_key_var, width=40) # tk -> ttk
         api_key_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=5, sticky=tk.EW)
 
         # --- 下载地址 ---
-        tk.Label(settings_frame, text="默认下载地址:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
-        download_path_entry = tk.Entry(settings_frame, textvariable=download_path_var, width=40)
+        ttk.Label(settings_frame, text="默认下载地址:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W) # tk -> ttk
+        download_path_entry = ttk.Entry(settings_frame, textvariable=download_path_var, width=40) # tk -> ttk
         download_path_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.EW)
         # '...' 按钮创建，但不在此处布局
-        select_path_button = tk.Button(settings_frame, text="...", command=lambda: self.select_default_download_path(download_path_var, settings_window))
+        select_path_button = ttk.Button(settings_frame, text="...", command=lambda: self.select_default_download_path(download_path_var, settings_window)) # tk -> ttk
 
         # --- 并发下载数 ---
-        tk.Label(settings_frame, text="最大并发下载数:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
+        ttk.Label(settings_frame, text="最大并发下载数:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.W) # tk -> ttk
         concurrency_combobox = ttk.Combobox(
             settings_frame,
             textvariable=concurrency_var,
@@ -291,7 +306,7 @@ class MainWindow:
         concurrency_combobox.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
 
         # --- 底部按钮 ---
-        button_frame_settings = tk.Frame(settings_frame)
+        button_frame_settings = ttk.Frame(settings_frame) # tk -> ttk
         # 按钮框架仍然使用 grid 放在 settings_frame 的第 3 行
         button_frame_settings.grid(row=3, column=0, columnspan=3, pady=15, sticky=tk.EW)
 
@@ -307,7 +322,7 @@ class MainWindow:
         select_path_button.grid(row=0, column=0, sticky=tk.W, padx=(0, 10)) # 使用 grid
 
         # 将保存按钮放在第 2 列
-        save_button = tk.Button(
+        save_button = ttk.Button( # tk -> ttk
             button_frame_settings,
             text="保存",
             command=lambda: self.app.save_settings(
@@ -322,7 +337,7 @@ class MainWindow:
         save_button.grid(row=0, column=2, sticky=tk.E, padx=(5, 5)) # 使用 grid
 
         # 将取消按钮放在第 3 列
-        cancel_button = tk.Button(button_frame_settings, text="取消", command=settings_window.destroy)
+        cancel_button = ttk.Button(button_frame_settings, text="取消", command=settings_window.destroy) # tk -> ttk
         cancel_button.grid(row=0, column=3, sticky=tk.E, padx=(5, 0)) # 使用 grid
 
         # --- Placeholder Logic ---

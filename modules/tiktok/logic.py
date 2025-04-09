@@ -19,7 +19,7 @@ def add_tiktok_urls(urls, app):
         if hasattr(app, 'show_message'):
             # 尝试获取主窗口作为父窗口，如果可用
             parent_window = app.view.root if hasattr(app, 'view') and hasattr(app.view, 'root') else None
-            app.show_message("提示", "未提供有效的 TikTok 视频 URL。", msg_type='warning', parent=parent_window)
+            app.show_message("提示", "未提供有效的 TikTok 视频 URL。", msg_type='warning')
         else:
              print("警告: 未提供有效的 TikTok 视频 URL (且无法显示消息框)。")
         return
@@ -35,7 +35,7 @@ def add_tiktok_urls(urls, app):
         print(f"错误: {error_msg}")
         if hasattr(app, 'show_message'):
             parent_window = app.view.root if hasattr(app, 'view') and hasattr(app.view, 'root') else None
-            app.show_message("错误", error_msg, msg_type='error', parent=parent_window)
+            app.show_message("错误", error_msg, msg_type='error')
 
 
 def download_tiktok_urls(urls, app):
@@ -51,7 +51,7 @@ def download_tiktok_urls(urls, app):
     if not urls:
         if hasattr(app, 'show_message'):
             parent_window = app.view.root if hasattr(app, 'view') and hasattr(app.view, 'root') else None
-            app.show_message("提示", "未提供有效的 TikTok 视频 URL。", msg_type='warning', parent=parent_window)
+            app.show_message("提示", "未提供有效的 TikTok 视频 URL。", msg_type='warning')
         else:
             print("警告: 未提供有效的 TikTok 视频 URL (且无法显示消息框)。")
         return
@@ -64,7 +64,7 @@ def download_tiktok_urls(urls, app):
          print(f"错误: {error_msg}")
          if hasattr(app, 'show_message'):
              parent_window = app.view.root if hasattr(app, 'view') and hasattr(app.view, 'root') else None
-             app.show_message("错误", error_msg, msg_type='error', parent=parent_window)
+             app.show_message("错误", error_msg, msg_type='error')
          return
 
     # 从主程序获取保存路径
@@ -120,6 +120,6 @@ def download_tiktok_urls(urls, app):
             error_msg += f" (跳过 {skipped_count} 个无效或处理错误的 URL)"
         if hasattr(app, 'show_message'):
             parent_window = app.view.root if hasattr(app, 'view') and hasattr(app.view, 'root') else None
-            app.show_message("提示", error_msg, parent=parent_window)
+            app.show_message("提示", error_msg)
         else:
             print(f"提示: {error_msg}")

@@ -5,6 +5,43 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本遵循[语义化版本](https://semver.org/lang/zh-CN/)规范。
 
+## [0.2.4] - 2025-04-09
+
+### 新增 (Added)
+
+*   **下载队列持久化**:
+    *   实现程序关闭时自动保存未完成/出错的任务状态到 `download_queue.json`。
+    *   实现程序启动时自动从 `download_queue.json` 加载未完成的任务到下载列表。
+    *   为加载持久化队列添加了错误处理（如文件损坏时的备份）和用户提示。
+
+### 更改 (Changed)
+
+*   **UI 风格统一与美化**:
+    *   将 TikTok 标签页 (`ui/tiktok_tab.py`) 中的 `tk` 控件替换为 `ttk` 版本，优化布局并添加滚动条。
+    *   将主窗口 (`ui/main_window.py`) 中的 `tk` 按钮、标签、框架、输入框等替换为 `ttk` 版本。
+    *   将 YouTube 标签页 (`ui/youtube_tab.py`) 中的 `tk` 按钮、标签、输入框等替换为 `ttk` 版本。
+    *   使用 `ttk.Style` 为主窗口的“停止下载”按钮应用自定义样式。
+*   **错误信息改进**:
+    *   修改 `DownloadService`，将 `yt-dlp` 的 `ignoreerrors` 设为 `False` 以捕获更详细错误。
+    *   修改 `DownloadService` 中的错误提取逻辑，暂时统一返回“下载失败”给用户，并添加 TODO 注释。
+    *   在主程序更新错误状态的描述时，添加了对 ANSI 转义码的清理。
+*   **健壮性改进**:
+    *   重构了 `start_immediate_downloads` 方法，简化逻辑，减少对异步 UI 状态的依赖，以解决竞争条件和重复提交问题。
+    *   在 `start_selected_downloads` 和 `start_immediate_downloads` 中增加了对任务状态和存在性的检查，防止无效提交。
+
+### 修复 (Fixed)
+
+*   修复了 `modules/tiktok/logic.py` 中调用 `app.show_message` 时传递无效 `parent` 参数导致的 `TypeError`。
+*   修复了下载任务在所有重试失败后，UI 状态仍显示为 `[重试中...]` 而不是 `[ERR]` 的问题。
+*   修复了 `_on_closing` 方法未能正确将 `'[...] '` (准备中) 状态重置为 '待下载' 再保存到持久化文件的问题。
+*   修复了因 `apply_diff` 操作引入的 Pylance 报告的缩进和语法错误。
+*   修复了重启应用加载持久化任务后，点击“下载选中项”因状态检查逻辑错误而无法启动下载的问题。
+*   修复了“移除选中项”后，下次启动程序时被移除的任务仍然从持久化文件加载的问题（通过在关闭时正确忽略已移除项并清空文件实现）。
+
+
+---
+
+
 ## [0.2.3] - 2025-04-07
 
 ### 新增 (Added)
