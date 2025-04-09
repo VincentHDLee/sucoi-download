@@ -145,6 +145,8 @@ class DownloadService:
 
         if 'ydl_opts' in item_info and isinstance(item_info['ydl_opts'], dict):
             task_opts.update(item_info['ydl_opts'])
+
+        # --- 限速逻辑已移除 ---
         task_opts['progress_hooks'] = [self._progress_hook]
 
         thread_id = threading.get_ident()

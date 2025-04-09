@@ -105,7 +105,7 @@ class ConfigManager:
     def _get_default_config(self):
         """返回一个默认的空配置字典。"""
         # 实际应用中可以定义更复杂的默认结构
-        return {"api_key": "", "default_download_path": ""}
+        return {"api_key": ""} # 移除 default_download_path
 
 # 可以在此添加简单的测试代码
 if __name__ == '__main__':

@@ -35,7 +35,7 @@ class MainWindow:
         self.root.geometry("1280x720") # 调整初始大小
 
         # --- 定义通用控件变量 ---
-        self.path_var = tk.StringVar() # 下载路径变量
+        self.path_var = tk.StringVar() # 下载路径变量 (主窗口使用)
 
         # --- 创建主窗口框架 ---
         self._create_widgets()
@@ -276,26 +276,23 @@ class MainWindow:
         settings_frame = ttk.Frame(settings_window, padding="10")
         settings_frame.pack(expand=True, fill="both")
 
-        placeholder_api_key = "你的API key (用于YouTube)"; placeholder_path = "留空使用默认路径"; placeholder_color = 'grey'
+        placeholder_api_key = "你的API key (用于YouTube)"; placeholder_color = 'grey'
         try: default_fg_color = settings_window.cget('fg')
         except tk.TclError: default_fg_color = 'black'
 
-        api_key_var = tk.StringVar(); download_path_var = tk.StringVar(); concurrency_var = tk.StringVar()
+        # --- 定义 Tkinter 变量 ---
+        api_key_var = tk.StringVar()
+        concurrency_var = tk.StringVar()
 
         # --- API Key ---
-        ttk.Label(settings_frame, text="YouTube API Key:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W) # tk -> ttk
-        api_key_entry = ttk.Entry(settings_frame, textvariable=api_key_var, width=40) # tk -> ttk
+        ttk.Label(settings_frame, text="YouTube API Key:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        api_key_entry = ttk.Entry(settings_frame, textvariable=api_key_var, width=40)
         api_key_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=5, sticky=tk.EW)
 
-        # --- 下载地址 ---
-        ttk.Label(settings_frame, text="默认下载地址:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W) # tk -> ttk
-        download_path_entry = ttk.Entry(settings_frame, textvariable=download_path_var, width=40) # tk -> ttk
-        download_path_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.EW)
-        # '...' 按钮创建，但不在此处布局
-        select_path_button = ttk.Button(settings_frame, text="...", command=lambda: self.select_default_download_path(download_path_var, settings_window)) # tk -> ttk
+        # --- 下载地址行已移除 ---
 
-        # --- 并发下载数 ---
-        ttk.Label(settings_frame, text="最大并发下载数:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.W) # tk -> ttk
+        # --- 并发下载数 (行号调整为 1) ---
+        ttk.Label(settings_frame, text="最大并发下载数:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
         concurrency_combobox = ttk.Combobox(
             settings_frame,
             textvariable=concurrency_var,
@@ -303,84 +300,123 @@ class MainWindow:
             state='readonly',
             width=5
         )
-        concurrency_combobox.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+        concurrency_combobox.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
 
-        # --- 底部按钮 ---
-        button_frame_settings = ttk.Frame(settings_frame) # tk -> ttk
-        # 按钮框架仍然使用 grid 放在 settings_frame 的第 3 行
-        button_frame_settings.grid(row=3, column=0, columnspan=3, pady=15, sticky=tk.EW)
+        # --- 下载限速行已移除 ---
 
-        # --- 统一使用 Grid 布局底部按钮 ---
+
+        # --- 底部按钮 (行号调整为 2) ---
+        button_frame_settings = ttk.Frame(settings_frame)
+        button_frame_settings.grid(row=2, column=0, columnspan=3, pady=15, sticky=tk.EW) # 行号改为 2
+
         # 配置 button_frame_settings 的列权重，让中间列扩展
-        button_frame_settings.columnconfigure(0, weight=0) # 选择路径按钮列
-        button_frame_settings.columnconfigure(1, weight=1) # 空白列，用于推开按钮
-        button_frame_settings.columnconfigure(2, weight=0) # 保存按钮列
-        button_frame_settings.columnconfigure(3, weight=0) # 取消按钮列
+        # button_frame_settings.columnconfigure(0, weight=0) # 选择路径按钮列 (移除)
+        button_frame_settings.columnconfigure(0, weight=1) # 空白列 (改为0)
+        button_frame_settings.columnconfigure(1, weight=0) # 保存按钮列 (改为1)
+        button_frame_settings.columnconfigure(2, weight=0) # 取消按钮列 (改为2)
 
-        # 将 '选择路径' 按钮放在第 0 列
-        select_path_button.config(text="选择路径") # 改为完整文本
-        select_path_button.grid(row=0, column=0, sticky=tk.W, padx=(0, 10)) # 使用 grid
+        # '选择路径' 按钮已移除
 
-        # 将保存按钮放在第 2 列
-        save_button = ttk.Button( # tk -> ttk
+        # 定义保存按钮的回调函数
+        def _save_settings_action():
+            api_key = api_key_var.get()
+            # download_path 已移除
+            concurrency = concurrency_var.get()
+            print(f"Debug: Saving settings - api_key='{api_key}', concurrency='{concurrency}'")
+            # 移除调用 save_settings 的 download_path 和 placeholder_pth 参数
+            self.app.save_settings(
+                api_key=api_key,
+                concurrency_str=concurrency,
+                window=settings_window,
+                placeholder_api=placeholder_api_key
+            )
+
+        # 将保存按钮放在第 1 列 (改为1)
+        save_button = ttk.Button(
             button_frame_settings,
             text="保存",
-            command=lambda: self.app.save_settings(
-                api_key_var.get(),
-                download_path_var.get(),
-                concurrency_var.get(), # 传递并发数
-                settings_window,
-                placeholder_api_key,
-                placeholder_path
-            )
+            command=_save_settings_action
         )
-        save_button.grid(row=0, column=2, sticky=tk.E, padx=(5, 5)) # 使用 grid
+        save_button.grid(row=0, column=1, sticky=tk.E, padx=(5, 5)) # column=1
 
-        # 将取消按钮放在第 3 列
-        cancel_button = ttk.Button(button_frame_settings, text="取消", command=settings_window.destroy) # tk -> ttk
-        cancel_button.grid(row=0, column=3, sticky=tk.E, padx=(5, 0)) # 使用 grid
+        # 将取消按钮放在第 2 列 (改为2)
+        cancel_button = ttk.Button(button_frame_settings, text="取消", command=settings_window.destroy)
+        cancel_button.grid(row=0, column=2, sticky=tk.E, padx=(5, 0)) # column=2
 
-        # --- Placeholder Logic ---
+        # --- Placeholder Logic (使用 ttk.Style) ---
+        placeholder_style_name = 'Placeholder.TEntry'
+        normal_style_name = 'TEntry'
+        style = getattr(self, 'style', ttk.Style())
+        style.map(placeholder_style_name,
+                  foreground=[('!disabled', 'grey')],
+                  fieldbackground=[('!disabled', style.lookup('TEntry', 'fieldbackground'))])
+
         def setup_placeholder_logic(entry, var, placeholder_text):
-            def on_focus_in(event):
-                if var.get() == placeholder_text: var.set(''); entry.config(fg=default_fg_color)
-            def on_focus_out(event):
-                if not var.get(): var.set(placeholder_text); entry.config(fg=placeholder_color)
-            entry.bind("<FocusIn>", on_focus_in); entry.bind("<FocusOut>", on_focus_out)
+            def apply_style(*args):
+                try:
+                    if entry.winfo_exists():
+                        if var.get() == placeholder_text:
+                            entry.config(style=placeholder_style_name)
+                        else:
+                            entry.config(style=normal_style_name)
+                except tk.TclError: pass
+            def on_focus_in(event=None):
+                try:
+                    if entry.winfo_exists() and var.get() == placeholder_text:
+                        var.set('')
+                        entry.config(style=normal_style_name)
+                except tk.TclError: pass
+            def on_focus_out(event=None):
+                try:
+                    if entry.winfo_exists() and not var.get():
+                        var.set(placeholder_text)
+                        entry.config(style=placeholder_style_name)
+                    elif entry.winfo_exists():
+                         entry.config(style=normal_style_name)
+                except tk.TclError: pass
+            entry.bind("<FocusIn>", on_focus_in, add='+')
+            entry.bind("<FocusOut>", on_focus_out, add='+')
+            apply_style()
+            var.trace_add("write", apply_style)
 
         # --- 加载当前设置 ---
         current_api_key = self.app.get_config('api_key');
-        current_path = self.app.get_config('default_download_path')
+        # current_path 移除
         current_concurrency = self.app.get_config('max_concurrent_downloads', 3)
 
+        # 设置 API Key 初始值
         if current_api_key and current_api_key != 'YOUR_YOUTUBE_DATA_API_KEY_HERE':
-            api_key_var.set(current_api_key); api_key_entry.config(fg=default_fg_color)
+            api_key_var.set(current_api_key)
         else:
-            api_key_var.set(placeholder_api_key); api_key_entry.config(fg=placeholder_color)
-
-        if current_path:
-            download_path_var.set(current_path); download_path_entry.config(fg=default_fg_color)
-        else:
-            # 修改：使用正确的 placeholder_path
-            download_path_var.set(placeholder_path); download_path_entry.config(fg=placeholder_color)
-
-        concurrency_var.set(str(current_concurrency)) # 设置并发数初始值
-
+            api_key_var.set(placeholder_api_key)
         setup_placeholder_logic(api_key_entry, api_key_var, placeholder_api_key)
-        setup_placeholder_logic(download_path_entry, download_path_var, placeholder_path)
+
+        # 设置下载路径初始值 (移除)
+
+        # 恢复并发数加载
+        concurrency_var.set(str(current_concurrency))
+
+        # 定义输入校验函数 (移除)
+
+        # 设置限速初始值 (移除)
+
+
+        # 应用 Placeholder 逻辑
+        setup_placeholder_logic(api_key_entry, api_key_var, placeholder_api_key)
+        # setup_placeholder_logic(download_path_entry, ...) 移除
 
         settings_frame.columnconfigure(1, weight=1) # 让 Entry 和 Combobox 列可伸展
         settings_window.update_idletasks()
 
         self.center_window(settings_window)
         settings_window.resizable(False, False)
+
+        # --- 绑定输入校验 (移除) ---
+
         settings_window.wait_window()
 
-
-    def select_default_download_path(self, path_var, parent_window):
-        """为设置窗口中的下载路径选择文件夹。"""
-        folder = filedialog.askdirectory(parent=parent_window)
-        if folder: abs_path = os.path.abspath(folder); path_var.set(abs_path); parent_window.focus()
+    # select_default_download_path 方法已不再需要，可以移除
+    # def select_default_download_path(self, path_var, parent_window): ...
 
     def center_window(self, window):
         """将给定窗口在其父窗口或屏幕上居中。"""
@@ -398,87 +434,68 @@ class MainWindow:
              x = (screen_width // 2) - (width // 2); y = (screen_height // 2) - (height // 2)
         window.geometry(f'{width}x{height}+{x}+{y}')
 
-# 可选的测试代码
+# --- 用于本地测试的 Mock AppController 和主循环 ---
 if __name__ == '__main__':
-    root = tk.Tk()
-
-    # 模拟 App Controller
     class MockAppController:
+        """模拟主应用程序控制器，用于 UI 测试。"""
         def __init__(self, root_window):
             self.root = root_window
-            self._config = {'api_key': '', 'default_download_path': '', 'max_concurrent_downloads': 3} # 添加默认并发数
-            self._cancel_requested = False
-            self.download_items = {} # 模拟下载列表数据
+            self.config = {
+                'api_key': 'YOUR_YOUTUBE_DATA_API_KEY_HERE',
+                'default_download_path': '',
+                'max_concurrent_downloads': 3
+            }
+            self.download_queue_data = {}
 
         def _initialize_download_path(self, path_var):
-            path_var.set(self.get_fallback_download_path())
-            print("MockApp: Initialized download path.")
+            path_var.set(self.config.get('default_download_path', ''))
 
         def save_download_path_to_config(self, *args):
-            print("MockApp: Download path trace triggered.") # 仅打印，不真的保存
-
-        def request_cancel(self):
-            self._cancel_requested = True
-            print("MockApp: Cancel requested.")
-            # 在真实应用中，这里会更新 UI 状态
-            if hasattr(self, 'view'): self.view.update_status_bar("请求停止下载...")
-
-        def is_cancel_requested(self):
-            return self._cancel_requested
-
-        def reset_cancel_request(self):
-             self._cancel_requested = False
+            new_path = self.root.children['!mainwindow'].path_var.get()
+            self.config['default_download_path'] = new_path
+            print(f"模拟保存主窗口下载路径到配置: {new_path}")
 
         def get_config(self, key, default=None):
-             return self._config.get(key, default)
+            return self.config.get(key, default)
 
-        # 修改：添加 concurrency_str 参数
-        def save_settings(self, api_key, download_path, concurrency_str, window, placeholder_api, placeholder_pth):
-             final_api_key = api_key if api_key != placeholder_api else ''
-             final_download_path = os.path.abspath(download_path) if download_path and download_path != placeholder_pth else ''
+        def request_cancel(self):
+            print("模拟请求停止下载")
+            self.root.children['!mainwindow'].update_status_bar("停止请求已发送...")
 
-             # 处理并发数
-             final_concurrency = self.get_config('max_concurrent_downloads', 3)
+        # 修改 save_settings 签名，移除 download_path, placeholder_pth
+        def save_settings(self, *, api_key, concurrency_str, window, placeholder_api):
              try:
-                 concurrency_int = int(concurrency_str)
-                 final_concurrency = max(1, min(10, concurrency_int))
-             except (ValueError, TypeError):
-                 print(f"MockApp: Invalid concurrency value '{concurrency_str}'")
-                 if hasattr(self, 'view'): self.view.show_message("警告", f"并发数值 '{concurrency_str}' 无效，未更新此项。", msg_type='warning', parent=window)
+                concurrency = int(concurrency_str)
+                if not 1 <= concurrency <= 10: raise ValueError("并发数必须在 1 到 10 之间")
+                self.config['max_concurrent_downloads'] = concurrency
+             except ValueError as e:
+                messagebox.showerror("错误", f"无效的并发下载数: {e}", parent=window)
+                return
 
-             self._config['api_key'] = final_api_key
-             self._config['default_download_path'] = final_download_path
-             self._config['max_concurrent_downloads'] = final_concurrency # 保存并发数
+             self.config['api_key'] = api_key if api_key != placeholder_api else ''
+             # download_path 不再从此窗口保存
 
-             print(f"MockApp: Settings saved - API Key: {final_api_key}, Path: {final_download_path}, Concurrency: {final_concurrency}")
-             if hasattr(self, 'view'): self.view.show_message("设置", "设置已保存（模拟）。", parent=window)
-
-             # 模拟API Key警告
-             if not final_api_key:
-                 if hasattr(self, 'view'): self.view.show_message("提示", "YouTube API Key 未设置...", msg_type='warning', parent=window)
-
+             print("模拟保存设置:", self.config)
+             messagebox.showinfo("成功", "设置已保存。", parent=window)
              window.destroy()
 
-        def get_fallback_download_path(self):
-            return os.path.join(os.path.dirname(__file__), "test_download_ui")
+        def start_selected_downloads(self):
+            print("模拟开始下载选中项")
 
-        # 模拟添加一个 TikTok 标签页
+        def mark_items_as_removed(self, item_iids):
+            print(f"模拟标记移除项: {item_iids}")
+
         def load_tabs(self):
             try:
-                # 假设 tiktok_tab.py 在同一目录下或 python path 中
-                import tiktok_tab # 直接导入，需要确保路径正确
-                # 需要模拟 add_platform_tab 方法
-                if hasattr(self, 'view'): self.view.add_platform_tab("TikTok", tiktok_tab.create_tab)
-            except ImportError as e:
-                 print(f"Could not load TikTok tab UI: {e}")
-                 if hasattr(self, 'view'): self.view._add_error_tab("TikTok", f"无法加载UI模块:\n{e}")
+                from ui.tiktok_tab import create_tiktok_tab
+                main_window = self.root.children['!mainwindow']
+                main_window.add_platform_tab("TikTok", create_tiktok_tab)
+                print("TikTok 标签页尝试加载")
+            except ImportError as e: print(f"无法导入 TikTok UI 模块: {e}")
+            except KeyError: print("无法找到 MainWindow 实例")
 
-
-    app_controller = MockAppController(root)
-    main_window = MainWindow(root, app_controller)
-    app_controller.view = main_window # 让控制器能访问视图
-
-    # 模拟加载标签页
-    app_controller.load_tabs()
-
+    root = tk.Tk()
+    mock_app = MockAppController(root)
+    main_window = MainWindow(root, mock_app)
+    mock_app.load_tabs()
     root.mainloop()

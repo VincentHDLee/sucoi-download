@@ -45,7 +45,7 @@ class SucoiAppController:
         self.config_manager = ConfigManager(config_file=config_path,
                                              example_config_file=example_config_path)
         # Initialize DownloadService
-        self.download_service = DownloadService() # <-- 已取消注释
+        self.download_service = DownloadService() # <-- 恢复原状
 
         # --- Initialize ThreadPoolExecutor ---
         try:
@@ -58,8 +58,11 @@ class SucoiAppController:
         print(f"信息: 初始化下载线程池，最大并发数: {self.max_workers}")
         self.download_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers)
         self.active_futures = {} # 用于存储 Future 对象，键为 item_id
-        self.active_task_progress = {} # 用于存储活动任务进度 {item_id: percentage}
+        self.active_task_progress = {} # 用于存储活动任务进度 {item_id: percentage} - 将被移除
         self.removed_item_ids = set() # 存储用户已移除的任务ID
+        # --- 新增：用于基于计数的批次进度条 ---
+        self.total_batch_tasks = 0      # 当前批次的总任务数
+        self.completed_batch_tasks = 0  # 当前批次已完成的任务数
 
 
         # --- Initialize UI ---
@@ -135,8 +138,8 @@ class SucoiAppController:
         else:
             self.view.update_status_bar("已请求停止下载")
 
-    # 修改：添加 concurrency_str 参数
-    def save_settings(self, api_key, download_path, concurrency_str, window, placeholder_api, placeholder_pth):
+    # 修改：接收 limit_kb_str，参数名使用 kwargs 风格以提高可读性
+    def save_settings(self, *, api_key, download_path, concurrency_str, window, placeholder_api, placeholder_pth): # 恢复 download_path, placeholder_pth
         """Saves settings from the settings dialog. Called by Save button in settings."""
         updates = {}
         final_api_key = api_key if api_key != placeholder_api else ''
@@ -162,23 +165,28 @@ class SucoiAppController:
 
         else: # Path was empty or placeholder
              final_download_path = '' # Clear the path setting
+        # --- 处理并发数 (添加空字符串检查) ---
+        final_concurrency = self.config_manager.get_config('max_concurrent_downloads', 3) # 默认值
+        if concurrency_str: # 仅在非空时尝试转换
+            try:
+                concurrency_int = int(concurrency_str)
+                # 限制范围
+                final_concurrency = max(1, min(10, concurrency_int))
+            except (ValueError, TypeError):
+                print(f"警告: 无效的并发数值 '{concurrency_str}'，将使用旧值或默认值 {final_concurrency}。")
+                self.view.show_message("警告", f"并发数值 '{concurrency_str}' 无效，未更新此项。", msg_type='warning', parent=window)
+        else:
+            # 如果为空字符串，也使用默认值
+            print(f"警告: 并发数值为空，将使用旧值或默认值 {final_concurrency}。")
+            self.view.show_message("警告", "并发数值未设置，将使用默认值。", msg_type='warning', parent=window)
 
-        # 添加：处理并发数
-        final_concurrency = self.max_workers # Start with current value as fallback
-        try:
-            concurrency_int = int(concurrency_str)
-            # 限制范围
-            final_concurrency = max(1, min(10, concurrency_int))
-        except (ValueError, TypeError):
-             print(f"警告: 无效的并发数值 '{concurrency_str}'，配置中将保留旧值或默认值。")
-             # Optionally show a warning to the user, but maybe saving the rest is fine
-             self.view.show_message("警告", f"并发数值 '{concurrency_str}' 无效，未更新此项。", msg_type='warning', parent=window)
-             # Get the existing value to ensure it's saved correctly if other settings change
-             final_concurrency = self.config_manager.get_config('max_concurrent_downloads', 3) # Reload from config if input invalid
+        # --- 下载限速逻辑已移除 ---
 
         updates['api_key'] = final_api_key
+        # 恢复下载路径更新
         updates['default_download_path'] = final_download_path
-        updates['max_concurrent_downloads'] = final_concurrency # 添加并发数到更新字典
+        updates['max_concurrent_downloads'] = final_concurrency
+        # updates['download_limit_kb'] = final_limit_kb # 限速值更新已移除
 
         # Perform the save
         save_successful, error_msg = self.config_manager.update_multiple_configs(updates) # 修改：接收返回元组
@@ -211,16 +219,7 @@ class SucoiAppController:
                 # 在保存成功提示后，再弹出一个警告框
                 self.view.show_message("提示", warning_msg, msg_type='warning', parent=window)
 
-            # Update main window path entry if necessary
-            current_main_path = self.view.get_path_variable().get()
-            fallback_path = self.get_fallback_download_path()
-            new_default_path = final_download_path if final_download_path else fallback_path
-
-            if final_download_path and current_main_path == fallback_path:
-                self.view.get_path_variable().set(new_default_path)
-            elif not final_download_path: # If path was cleared or invalid, reset main view to fallback
-                self.view.get_path_variable().set(fallback_path)
-
+            # 主窗口路径现在独立于设置窗口管理，此处无需更新
             window.destroy()
         else:
             # 修改：显示更详细的错误信息
@@ -400,55 +399,42 @@ class SucoiAppController:
                      status_text = "[CAN]" # 使用 ASCII 符号
                      values_to_set = {'status': status_text, 'description': progress_data.get('description', "用户取消")}
                      percent_value = 0.0 # Reset progress on cancel
-                elif status == 'retrying': # 新增处理重试状态
-                     status_text = "[重试中...]"
-                     # description 可能包含重试信息，保留它
-                     values_to_set = {'status': status_text, 'description': progress_data.get('description', '')}
-                     # 重试时不改变进度百分比，percent_value 设为 None
-                     percent_value = None
+                elif status == 'retrying': # 新增处理重试状态，并显示次数
+                    retry_count = progress_data.get('retry_count', '?') # 从回调数据获取当前重试次数
+                    max_retries = progress_data.get('max_retries', '?') # 从回调数据获取最大重试次数
+                    status_text = f"[重试中... {retry_count}/{max_retries}]" # 格式化状态文本
+                    # description 可能包含重试的具体原因，保留它
+                    values_to_set = {'status': status_text, 'description': progress_data.get('description', '')}
+                    # 重试时不改变进度百分比，percent_value 设为 None
+                    percent_value = None
 
                 # Update Treeview
                 for col, value in values_to_set.items():
                      if download_tree.exists(item_id):
                           download_tree.set(item_id, column=col, value=value)
 
-                # --- 更新总体进度条 (修正逻辑) ---
-                should_update_bar = False
-                if status == 'finished' and percent_value == 100.0:
-                    # 任务完成：先记录 100%，计算平均值，更新进度条，然后移除
-                    self.active_task_progress[item_id] = 100.0
-                    should_update_bar = True
-                elif status in ['downloading', 'preparing'] and percent_value is not None:
-                    # 下载中或准备中：更新进度
-                    self.active_task_progress[item_id] = percent_value
-                    should_update_bar = True
-                elif status in ['error', 'cancelled']:
-                    # 出错或取消：如果存在则移除，并准备更新进度条（通常会归零）
-                    if item_id in self.active_task_progress:
-                        del self.active_task_progress[item_id]
-                        should_update_bar = True
-                # 注意：'retrying' 状态不直接更新进度条或 active_task_progress
-
-                # 如果需要更新进度条
-                if should_update_bar:
-                    if self.active_task_progress:
-                        # 计算当前所有活动任务（包括刚完成但尚未移除的）的平均进度
-                        total_progress = sum(self.active_task_progress.values())
-                        num_active_tasks = len(self.active_task_progress)
-                        overall_percentage = total_progress / num_active_tasks if num_active_tasks > 0 else 0
-                        progress_bar['value'] = overall_percentage
-                        # print(f"Debug: 更新总体进度 - {overall_percentage:.2f}% ({num_active_tasks} tasks)") # 调试日志
-                    else:
-                         # 如果字典变为空（最后一个任务完成/出错/取消）
-                         progress_bar['value'] = 0 # 归零，_final_ui_update 会设置最终状态
-
-                # 如果任务刚刚完成，在更新完进度条 *之后* 再移除
+                # --- 更新基于任务计数的总体进度条 (此处代码已正确) ---
+                # (保持现有代码不变，因为上次 apply_diff 已成功更新此部分)
                 if status == 'finished':
-                    if item_id in self.active_task_progress:
-                        # 确保是刚才标记为 100% 的那个任务
-                        if self.active_task_progress[item_id] == 100.0:
-                             del self.active_task_progress[item_id]
-                             # print(f"Debug: 移除了已完成任务 {item_id} 的进度记录")
+                    # 检查是否已对此任务计数，防止重复增加
+                    if not hasattr(self, '_finished_in_current_batch'):
+                        self._finished_in_current_batch = set()
+
+                    if item_id not in self._finished_in_current_batch:
+                        self._finished_in_current_batch.add(item_id)
+                        self.completed_batch_tasks += 1
+
+                        if self.total_batch_tasks > 0:
+                            # 计算进度：基础 5% + 完成比例 * 95%
+                            progress_percentage = 5 + (self.completed_batch_tasks / self.total_batch_tasks) * 95
+                            progress_bar['value'] = progress_percentage
+                            # print(f"Debug: 任务完成 {item_id}, 已完成 {self.completed_batch_tasks}/{self.total_batch_tasks}, 进度: {progress_percentage:.2f}%") # 调试日志
+                        else:
+                            # 如果总任务数为0（理论上不应发生在此处），保持初始值或设为 100？
+                            # 保持 5% 可能更合理，_final_ui_update 会处理最终状态
+                            progress_bar['value'] = 5
+                # 注意：其他状态 (downloading, error, cancelled, retrying) 不再直接更新主进度条
+                # 主进度条仅在任务完成时递增，或在批次结束时设置最终状态 (_final_ui_update)
 
             except Exception as e:
                 # Avoid crashing the app due to UI update errors
@@ -688,11 +674,21 @@ class SucoiAppController:
         # 修改：改进状态提示，并设置进度条初始值
         actual_task_count = len(selected_iids) # 实际将要启动的任务数
         self.update_status(f"开始准备下载 {actual_task_count} 个选中任务...")
-        self.active_task_progress = {} # 清空任务进度记录
+
+        # --- 初始化基于计数的进度条 ---
+        self.total_batch_tasks = actual_task_count
+        self.completed_batch_tasks = 0
+        if hasattr(self, '_finished_in_current_batch'): # 清除上一批次的完成记录
+            del self._finished_in_current_batch
         try:
             progress_bar = self.view.get_progress_bar()
-            if progress_bar: progress_bar['value'] = 0 # 重置进度条
-        except Exception as e: print(f"设置初始进度条时出错: {e}")
+            if progress_bar:
+                progress_bar['value'] = 5 if actual_task_count > 0 else 0 # 设置初始进度为 5% (如果任务数>0)
+            else:
+                print("警告: 无法获取进度条控件。")
+        except Exception as e:
+            print(f"设置初始进度条时出错: {e}")
+        # -----------------------------
 
         # 修改：使用 ThreadPoolExecutor 提交任务
         self.active_futures = {} # 清空之前的 Future 记录
@@ -905,10 +901,19 @@ class SucoiAppController:
         try:
             progress_bar = self.view.get_progress_bar()
             if progress_bar:
-                if success_count == total_tasks_in_batch and not was_cancelled and total_tasks_in_batch > 0: # 添加 total_tasks_in_batch > 0 条件
-                     progress_bar['value'] = 100 # 全部成功则100%
+                # 检查条件：未被取消 且 总任务数 > 0 且 (使用 self.completed_batch_tasks 比较更准确) 完成数等于总数
+                all_succeeded_and_not_cancelled = (not was_cancelled and
+                                                   self.total_batch_tasks > 0 and
+                                                   self.completed_batch_tasks == self.total_batch_tasks)
+
+                if all_succeeded_and_not_cancelled:
+                    progress_bar['value'] = 100
+                    final_progress_status = "100%"
                 else:
-                     progress_bar['value'] = 0   # 否则归零
+                    # 其他情况（被取消、有失败/错误、0任务）都归零
+                    progress_bar['value'] = 0
+                    final_progress_status = "重置 (0%)"
+                print(f"Debug: 批次结束，最终进度条状态: {final_progress_status}")
         except Exception as e: print(f"设置最终进度条时出错: {e}")
 
         summary_title = "下载完成" if not was_cancelled else "下载取消"
@@ -920,6 +925,13 @@ class SucoiAppController:
              summary_message += f"取消: {cancelled_count} 个\n"
         # if was_cancelled and (success_count + error_count + cancelled_count < total_tasks_in_batch):
         #      summary_message += f"\n注意：部分任务可能因取消而未完成或状态未知。"
+        # --- 重置批次计数器和临时状态 ---
+        print(f"Debug: 重置批次计数器，之前状态: {self.completed_batch_tasks}/{self.total_batch_tasks}")
+        self.total_batch_tasks = 0
+        self.completed_batch_tasks = 0
+        if hasattr(self, '_finished_in_current_batch'):
+            del self._finished_in_current_batch
+        # ------------------------------------
 
         print(f"监控：显示总结弹窗: Title='{summary_title}', Message='{summary_message.replace('\\n', ' ')}'") # 添加调试信息
         self.show_message(summary_title, summary_message)
@@ -928,6 +940,14 @@ class SucoiAppController:
         print("监控：清空 active_futures 和 active_task_progress。") # 添加调试信息
         self.active_futures = {} # 清空 Future 记录
         self.active_task_progress = {} # 清空进度记录
+
+        # --- 重置批次计数器和临时状态 ---
+        print(f"Debug: 重置批次计数器，之前状态: {self.completed_batch_tasks}/{self.total_batch_tasks}")
+        self.total_batch_tasks = 0
+        self.completed_batch_tasks = 0
+        if hasattr(self, '_finished_in_current_batch'):
+            del self._finished_in_current_batch
+        # ------------------------------------
 
 
     def _on_closing(self):
