@@ -76,10 +76,9 @@ class MainWindow:
         self.remove_button = ttk.Button(self.controls_frame, text="移除选中项", command=self.remove_selected_downloads) # tk -> ttk
         self.download_selected_button = ttk.Button(self.controls_frame, text="下载选中项", command=self.app.start_selected_downloads) # tk -> ttk
         # 修改：使用 ttk.Style 代替 background
-        self.stop_button = ttk.Button(self.controls_frame, text="停止下载", command=self.app.request_cancel, style='Danger.TButton') # tk -> ttk, 使用 style
+        # self.stop_button = ttk.Button(...) # 停止按钮已移除
 
-        # --- 单独创建主进度条 (父容器改为 self.root) ---
-        self.progress_bar = ttk.Progressbar(self.root, orient=tk.HORIZONTAL, length=100, mode='determinate')
+        # --- 主进度条已移除 ---
 
     def _setup_layout(self):
         """配置主窗口控件的布局。"""
@@ -89,7 +88,7 @@ class MainWindow:
         self.root.rowconfigure(1, weight=0) # path_frame
         self.root.rowconfigure(2, weight=1) # notebook
         self.root.rowconfigure(3, weight=2) # download_frame (给它更多权重)
-        self.root.rowconfigure(4, weight=0) # progress_bar row
+        # self.root.rowconfigure(4, weight=0) # progress_bar row 已移除
         self.root.rowconfigure(5, weight=0) # controls_frame row (原下载列表下方控件)
 
         # --- 顶部区域布局 ---
@@ -115,15 +114,14 @@ class MainWindow:
         self.download_tree.grid(row=0, column=0, sticky='nsew')
         self.download_scrollbar.grid(row=0, column=1, sticky='ns')
 
-        # --- 主进度条布局 (放在下载列表下方) ---
-        self.progress_bar.grid(row=4, column=0, sticky=tk.EW, padx=10, pady=(5, 0))
+        # --- 主进度条布局已移除 ---
 
         # --- 原下载列表下方控件布局 (现在放在主进度条下方) ---
         # 注意: 父容器已改为 self.root，所以 grid 在主窗口上
         self.controls_frame.grid(row=5, column=0, sticky=tk.EW, padx=10, pady=(0, 5))
         # 改为使用 pack 布局 controls_frame 内部的按钮，从右到左排列
         # 注意 pack 的顺序与 grid 不同，先 pack 的控件离指定边更近
-        self.stop_button.pack(in_=self.controls_frame, side=tk.RIGHT, padx=(5, 0))
+        # self.stop_button.pack(...) # 停止按钮已移除
         self.download_selected_button.pack(in_=self.controls_frame, side=tk.RIGHT, padx=(5, 0))
         self.remove_button.pack(in_=self.controls_frame, side=tk.RIGHT, padx=(0, 0)) # 最右边的按钮（逻辑上是 remove）
 
@@ -151,7 +149,7 @@ class MainWindow:
 
     def update_status_bar(self, message):
         """更新状态栏文本。"""
-        self.status_label.config(text=f"状态: {message}")
+        self.status_label.config(text=str(message)) # 直接显示传入的消息
         self.root.update_idletasks() # 强制更新界面
 
     def show_message(self, title, message, msg_type='info', parent=None):
@@ -170,9 +168,7 @@ class MainWindow:
         """返回下载列表 Treeview 控件的引用。"""
         return self.download_tree
 
-    def get_progress_bar(self):
-        """返回进度条控件的引用。"""
-        return self.progress_bar
+    # get_progress_bar 方法已移除
 
     def get_path_variable(self):
         """返回下载路径 tk.StringVar 的引用。"""
@@ -182,8 +178,9 @@ class MainWindow:
         """禁用或启用界面上的主要交互控件。"""
         state = tk.DISABLED if disable else tk.NORMAL
         # 修改：移除 self.remove_button，不再由通用逻辑禁用/启用
+        # 将 stop_button 移出通用控制列表，单独处理
         widgets_to_toggle = [
-            self.settings_button, self.path_button, self.download_selected_button, self.stop_button
+            self.settings_button, self.path_button, self.download_selected_button
             # 注意：添加了 self.download_selected_button 到通用禁用列表
         ]
         # 还需要禁用/启用各个 Tab 内部的按钮，这需要在 add_platform_tab 后处理

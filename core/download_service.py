@@ -48,20 +48,15 @@ class DownloadService:
 
         callback = context.get('callback')
         item_id = context.get('item_id')
-        cancel_func = context.get('is_cancel_requested_func')
+        # cancel_func = context.get('is_cancel_requested_func') # 取消功能已移除
         error_reported_key = f"{context_key}_error_reported"
         error_reported = context.get(error_reported_key, False)
 
-        if not callback or not item_id or not cancel_func:
-            logger.warning("进度钩子上下文信息不完整 (item_id: %s, callback: %s, cancel_func: %s)", item_id, callback, cancel_func)
+        if not callback or not item_id: # 移除对 cancel_func 的检查
+            logger.warning("进度钩子上下文信息不完整 (item_id: %s, callback: %s)", item_id, callback)
             return
 
-        try:
-            if cancel_func():
-                 logger.info("检测到用户取消请求 for [%s]", item_id)
-                 raise UserCancelledError(f"用户取消了任务 {item_id}")
-        except Exception as cancel_check_e:
-             logger.error("检查取消状态时出错 for [%s]: %s", item_id, cancel_check_e)
+        # 取消检查逻辑已移除
 
         status = d['status']
         progress_data = {'id': item_id, 'status': status}
@@ -118,15 +113,16 @@ class DownloadService:
         # logger.debug(f"原始下载错误: {msg}") # 可以添加调试日志记录原始错误
         return "下载失败" # 暂时统一返回通用错误信息
 
-    def download_item(self, item_info, progress_callback, is_cancel_requested_func):
+    def download_item(self, item_info, progress_callback): # 移除 is_cancel_requested_func 参数
         item_id = item_info.get('id')
         url = item_info.get('url')
         output_path = item_info.get('output_path')
 
-        if not all([item_id, url, output_path, callable(progress_callback), callable(is_cancel_requested_func)]):
-            error_msg = "下载信息或回调函数不完整"
-            logger.error("%s: id=%s, url=%s, output_path=%s, cb=%s, cancel_func=%s",
-                         error_msg, item_id, url, output_path, progress_callback, is_cancel_requested_func)
+        # 移除对 is_cancel_requested_func 的检查
+        if not all([item_id, url, output_path, callable(progress_callback)]):
+            error_msg = "下载信息或进度回调函数不完整"
+            logger.error("%s: id=%s, url=%s, output_path=%s, cb=%s",
+                         error_msg, item_id, url, output_path, progress_callback)
             return {'id': item_id, 'status': 'error', 'error_message': error_msg}
 
         final_status = 'pending'
@@ -154,7 +150,7 @@ class DownloadService:
         context = {
             'item_id': item_id,
             'callback': progress_callback,
-            'is_cancel_requested_func': is_cancel_requested_func,
+            # 'is_cancel_requested_func': is_cancel_requested_func, # 取消功能已移除
             f"{context_key}_error_reported": False
         }
         with self._context_lock:
@@ -193,58 +189,37 @@ class DownloadService:
                             self._mark_error_reported(context_key)
                             # 不再需要检查 _was_error_reported_by_hook，因为异常处理会捕获更详细信息
 
-                except UserCancelledError as uce:
-                    final_status = 'cancelled'
-                    error_message = str(uce) # 使用取消的错误消息
-                    logger.info("任务已取消 [%s]: %s", item_id, error_message)
-                    progress_callback({'id': item_id, 'status': 'cancelled', 'description': "用户已取消"})
-                    break # 取消后跳出 for 循环
-
+                # UserCancelledError 处理已移除 (取消功能移除)
                 except yt_dlp.utils.DownloadError as de:
                     # 异常处理：捕获 DownloadError 并提取信息
-                    # if not self._was_error_reported_by_hook(context_key): # 移除检查，总是尝试报告新捕获的错误
                     error_message_short = self._extract_friendly_error(de) # 提取友好错误信息
                     attempt_error_message = f"{error_message_short}" # 直接使用提取后的信息
                     logger.error(f"下载失败 [{item_id}] (尝试 {attempt + 1}): {attempt_error_message}\nOriginal Error: %s", de, exc_info=False)
                     self._mark_error_reported(context_key) # 标记错误发生
-                    # 删除了原有的 else 块
-
                 except Exception as e:
                     # 未知异常处理
-                    # if not self._was_error_reported_by_hook(context_key): # 移除检查
                     attempt_error_message = f"发生未知错误: {e}" # 包含异常类型
                     logger.error(f"下载失败 [{item_id}] (尝试 {attempt + 1}): {attempt_error_message}", exc_info=True)
                     self._mark_error_reported(context_key) # 标记错误发生
-                    # 删除了原有的 else 块
 
-                # --- 循环结束判断与重试延时 ---
-                if final_status == 'finished' or final_status == 'cancelled':
-                    break # 如果已成功或取消，直接跳出
+                # --- 循环结束判断与重试延时 (移回 for 循环内部) ---
+                if final_status == 'finished': # 移除 cancelled 检查
+                    break # 如果已成功，直接跳出
 
                 if attempt < max_retries: # 如果还有重试机会
                     delay = retry_delays[attempt]
                     logger.info(f"任务 [{item_id}] 第 {attempt + 2} 次重试将在 {delay} 秒后开始...")
                     progress_callback({'id': item_id, 'status': 'retrying', 'description': f'等待 {delay}s 后重试 ({attempt + 2}/{max_retries + 1})'})
-                    wait_start = time.time()
-                    while time.time() - wait_start < delay:
-                        if is_cancel_requested_func():
-                             logger.info("在重试等待期间检测到取消请求 for [%s]", item_id)
-                             # 直接在这里设置最终状态并跳出，避免进入下一次循环
-                             final_status = 'cancelled'
-                             error_message = f"用户在重试等待期间取消了任务 {item_id}"
-                             progress_callback({'id': item_id, 'status': 'cancelled', 'description': "用户已取消"})
-                             break # 跳出 while 等待循环
-                        time.sleep(0.2)
-                    if final_status == 'cancelled': # 如果在等待时取消了，也跳出 for 循环
-                        break
-                else: # 已达到最大重试次数
-                    logger.error(f"任务 [{item_id}] 所有 {max_retries + 1} 次尝试均失败。")
-                    final_status = 'error' # 最终状态设为错误
-                    error_message = attempt_error_message or "所有重试尝试均失败" # 使用最后一次捕获的错误或通用消息
-                    # 确保发送最终错误状态回调
-                    # if not self._was_error_reported_by_hook(context_key): # 注释掉此检查，确保最终错误状态总是被发送以覆盖 'retrying'
-                    progress_callback({'id': item_id, 'status': 'error', 'description': error_message[:100]}) # 发送清理后的错误信息
-                    break # 跳出 for 循环
+                    time.sleep(delay) # 简化延时，不再检查取消
+                # --- 此处缺少一个 else 块，用于处理达到最大重试次数的情况 ---
+                # --- 此处缺少一个 else 块，用于处理达到最大重试次数的情况 ---
+                else: # 已达到最大重试次数 (将此块移回 for 循环内部)
+                     logger.error(f"任务 [{item_id}] 所有 {max_retries + 1} 次尝试均失败。")
+                     final_status = 'error' # 最终状态设为错误
+                     error_message = attempt_error_message or "所有重试尝试均失败" # 使用最后一次捕获的错误或通用消息
+                     # 确保发送最终错误状态回调
+                     progress_callback({'id': item_id, 'status': 'error', 'description': error_message[:100]}) # 发送清理后的错误信息
+                     break # 跳出 for 循环
 
             # --- for 循环结束 ---
             # 修正：如果循环结束状态仍是 pending，说明是未处理的错误
@@ -265,7 +240,8 @@ class DownloadService:
         if final_status == 'finished' and final_filepath and os.path.exists(final_filepath):
              result['filepath'] = final_filepath
         # 只记录最后一次尝试的或特定的错误信息
-        if final_status != 'finished' and error_message and "已由钩子报告" not in error_message:
+        # 移除 cancelled 状态的判断
+        if final_status == 'error' and error_message and "已由钩子报告" not in error_message:
              result['error_message'] = error_message
         logger.debug("DownloadService: 即将返回最终结果 for %s: %s (类型: %s)", item_id, result, type(result))
         return result
